@@ -12,6 +12,8 @@ WORK_DIR="$HOME/.vps-play"
 # 加载工具库
 source "$SCRIPT_DIR/utils/env_detect.sh"
 source "$SCRIPT_DIR/utils/port_manager.sh"
+source "$SCRIPT_DIR/utils/process_manager.sh"
+source "$SCRIPT_DIR/utils/network.sh"
 
 # ==================== 颜色定义 ====================
 Green="\033[32m"
@@ -163,27 +165,33 @@ show_main_menu() {
     echo -e "${Green}---------------------------------------------------${Reset}"
     echo -e " ${Yellow}系统工具${Reset}"
     echo -e " ${Green}11.${Reset} 端口管理"
-    echo -e " ${Green}12.${Reset} 环境检测"
-    echo -e " ${Green}13.${Reset} 保活设置"
-    echo -e " ${Green}14.${Reset} 更新脚本"
+    echo -e " ${Green}12.${Reset} 进程管理"
+    echo -e " ${Green}13.${Reset} 网络工具"
+    echo -e " ${Green}14.${Reset} 环境检测"
+    echo -e " ${Green}15.${Reset} 保活设置"
+    echo -e " ${Green}16.${Reset} 更新脚本"
     echo -e "${Green}---------------------------------------------------${Reset}"
     echo -e " ${Green}0.${Reset}  退出"
     echo -e "${Green}=================================================${Reset}"
 }
 
 # ==================== 主循环 ====================
-main_loop() {
     while true; do
         show_main_menu
         
-        read -p " 请选择 [0-14]: " choice
+        read -p " 请选择 [0-16]: " choice
         
         case "$choice" in
             1)
                 echo -e "${Warning} sing-box 模块开发中..."
                 ;;
             2)
-                echo -e "${Warning} GOST 模块开发中..."
+                # GOST 中转模块
+                if [ -f "$SCRIPT_DIR/modules/gost/manager.sh" ]; then
+                    bash "$SCRIPT_DIR/modules/gost/manager.sh"
+                else
+                    echo -e "${Error} GOST 模块未找到"
+                fi
                 ;;
             3)
                 echo -e "${Warning} X-UI 模块开发中..."
@@ -201,13 +209,22 @@ main_loop() {
                 port_manage_menu
                 ;;
             12)
+                # 进程管理
+                echo -e "${Info} 进程管理工具:"
+                list_processes
+                ;;
+            13)
+                # 网络工具
+                network_info
+                ;;
+            14)
                 detect_environment
                 show_env_info
                 ;;
-            13)
+            15)
                 echo -e "${Warning} 保活设置开发中..."
                 ;;
-            14)
+            16)
                 echo -e "${Info} 更新脚本..."
                 curl -sL https://raw.githubusercontent.com/YOUR_REPO/VPS-play/main/start.sh -o "$SCRIPT_DIR/start.sh.new"
                 if [ -f "$SCRIPT_DIR/start.sh.new" ]; then
