@@ -1,0 +1,48 @@
+# VPS-play .gitignore
+
+# 配置文件
+config/*.conf
+config/*.json
+!config/config.example.json
+
+# 临时文件
+*.tmp
+*.log
+*.pid
+*.bak
+*.backup
+
+# 运行时目录
+logs/
+*.log
+
+# 用户数据
+data/
+*.db
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Node.js (如果有)
+node_modules/
+package-lock.json
+
+# Python (如果有)
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+venv/
+env/
+
+# 测试文件
+test/
+*.test.sh
