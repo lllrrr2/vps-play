@@ -159,9 +159,11 @@ show_main_menu() {
     echo -e " ${Green}1.${Reset}  sing-box 节点"
     echo -e " ${Green}2.${Reset}  GOST 中转"
     echo -e " ${Green}3.${Reset}  X-UI 面板"
-    echo -e " ${Green}4.${Reset}  FRPC 内网穿透"
-    echo -e " ${Green}5.${Reset}  Cloudflared 隧道"
-    echo -e " ${Green}6.${Reset}  哪吒监控"
+    echo -e " ${Green}4.${Reset}  FRPC 客户端"
+    echo -e " ${Green}5.${Reset}  FRPS 服务端"
+    echo -e " ${Green}6.${Reset}  Cloudflared 隧道"
+    echo -e " ${Green}7.${Reset}  哪吒监控"
+    echo -e " ${Green}8.${Reset}  WARP 代理"
     echo -e "${Green}---------------------------------------------------${Reset}"
     echo -e " ${Yellow}系统工具${Reset}"
     echo -e " ${Green}11.${Reset} 端口管理"
@@ -215,6 +217,14 @@ show_main_menu() {
                 fi
                 ;;
             5)
+                # FRPS 模块
+                if [ -f "$SCRIPT_DIR/modules/frps/manager.sh" ]; then
+                    bash "$SCRIPT_DIR/modules/frps/manager.sh"
+                else
+                    echo -e "${Error} FRPS 模块未找到"
+                fi
+                ;;
+            6)
                 # Cloudflared 模块
                 if [ -f "$SCRIPT_DIR/modules/cloudflared/manager.sh" ]; then
                     bash "$SCRIPT_DIR/modules/cloudflared/manager.sh"
@@ -222,12 +232,20 @@ show_main_menu() {
                     echo -e "${Error} Cloudflared 模块未找到"
                 fi
                 ;;
-            6)
+            7)
                 # 哪吒监控模块
                 if [ -f "$SCRIPT_DIR/modules/nezha/manager.sh" ]; then
                     bash "$SCRIPT_DIR/modules/nezha/manager.sh"
                 else
                     echo -e "${Error} 哪吒监控模块未找到"
+                fi
+                ;;
+            8)
+                # WARP 模块
+                if [ -f "$SCRIPT_DIR/modules/warp/manager.sh" ]; then
+                    bash "$SCRIPT_DIR/modules/warp/manager.sh"
+                else
+                    echo -e "${Error} WARP 模块未找到"
                 fi
                 ;;
             11)
