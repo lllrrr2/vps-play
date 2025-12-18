@@ -118,18 +118,11 @@ export PATH="$HOME/bin:$PATH"
 echo -e ""
 echo -e "${Green}==================== 安装完成 ====================${Reset}"
 echo -e ""
-echo -e "后续使用方法:"
-echo -e "  ${Green}bash ~/vps-play/start.sh${Reset}  - 启动主菜单"
+echo -e "${Yellow}请运行以下命令启动:${Reset}"
 echo -e ""
-echo -e "或者重新登录后使用快捷命令:"
-echo -e "  ${Green}vps-play${Reset}"
+echo -e "  ${Green}bash ~/vps-play/start.sh${Reset}"
+echo -e ""
+echo -e "或者重新登录后使用快捷命令: ${Green}vps-play${Reset}"
 echo -e ""
 echo -e "${Green}=================================================${Reset}"
-echo -e ""
-
-# 直接运行
-echo -e "${Cyan}正在启动 VPS-play...${Reset}"
-echo -e ""
-cd "$INSTALL_DIR"
-exec ./start.sh
 

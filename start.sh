@@ -29,12 +29,111 @@ Tip="${Cyan}[提示]${Reset}"
 
 # ==================== 初始化环境 ====================
 init_environment() {
-    mkdir -p "$WORK_DIR"/{modules,config,logs,keepalive}
+    mkdir -p "$WORK_DIR"/{modules,config,logs,keepalive,processes}
     
     # 检测或加载环境信息
-    if ! load_env_info "$WORK_DIR/env.conf"; then
-        detect_environment
-        save_env_info "$WORK_DIR/env.conf"
+    if [ -f "$WORK_DIR/env.conf" ]; then
+        source "$WORK_DIR/env.conf"
+    fi
+    
+    # 如果环境变量为空，重新检测
+    if [ -z "$ENV_TYPE" ] || [ -z "$OS_DISTRO" ]; then
+        # 静默检测
+        detect_os_silent
+        detect_arch_silent
+        detect_permissions_silent
+        detect_services_silent
+        detect_network_silent
+        determine_env_type_silent
+        
+        # 保存配置
+        save_env_info "$WORK_DIR/env.conf" 2>/dev/null
+    fi
+}
+
+# 静默版本的检测函数
+detect_os_silent() {
+    local os=$(uname -s)
+    case "$os" in
+        Linux)
+            OS_TYPE="linux"
+            if [ -f /etc/os-release ]; then
+                . /etc/os-release
+                OS_DISTRO=$(echo "$ID" | tr '[:upper:]' '[:lower:]')
+            elif [ -f /etc/redhat-release ]; then
+                OS_DISTRO="centos"
+            elif [ -f /etc/debian_version ]; then
+                OS_DISTRO="debian"
+            else
+                OS_DISTRO="linux"
+            fi
+            ;;
+        FreeBSD)
+            OS_TYPE="freebsd"
+            OS_DISTRO="freebsd"
+            ;;
+        *)
+            OS_TYPE="unknown"
+            OS_DISTRO="unknown"
+            ;;
+    esac
+}
+
+detect_arch_silent() {
+    local arch=$(uname -m)
+    case $arch in
+        x86_64|amd64) ARCH="amd64" ;;
+        aarch64|arm64) ARCH="arm64" ;;
+        armv7l) ARCH="armv7" ;;
+        i386|i686) ARCH="386" ;;
+        *) ARCH="unknown" ;;
+    esac
+}
+
+detect_permissions_silent() {
+    if [ "$(id -u)" = "0" ]; then
+        HAS_ROOT=true
+    else
+        HAS_ROOT=false
+    fi
+}
+
+detect_services_silent() {
+    if command -v systemctl &>/dev/null && systemctl &>/dev/null 2>&1; then
+        HAS_SYSTEMD=true
+    else
+        HAS_SYSTEMD=false
+    fi
+    
+    if command -v devil &>/dev/null; then
+        HAS_DEVIL=true
+    else
+        HAS_DEVIL=false
+    fi
+}
+
+detect_network_silent() {
+    PUBLIC_IP=$(curl -s4m5 ip.sb 2>/dev/null || curl -s4m5 ifconfig.me 2>/dev/null || echo "unknown")
+    LOCAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "unknown")
+    
+    if [ "$PUBLIC_IP" != "$LOCAL_IP" ] && [ "$PUBLIC_IP" != "unknown" ] && [ "$LOCAL_IP" != "unknown" ]; then
+        IS_NAT=true
+    else
+        IS_NAT=false
+    fi
+}
+
+determine_env_type_silent() {
+    if [ "$HAS_DEVIL" = true ]; then
+        ENV_TYPE="serv00"
+    elif [ "$OS_TYPE" = "freebsd" ]; then
+        ENV_TYPE="freebsd"
+    elif [ "$IS_NAT" = true ]; then
+        ENV_TYPE="natvps"
+    elif [ "$HAS_ROOT" = true ]; then
+        ENV_TYPE="vps"
+    else
+        ENV_TYPE="limited"
     fi
 }
 
