@@ -163,6 +163,105 @@ detect_arch() {
     echo -e "${Info} 架构: ${Cyan}${ARCH}${Reset}"
 }
 
+# ==================== 检测虚拟化 ====================
+VIRT_TYPE=""
+IS_CONTAINER=false
+
+detect_virtualization() {
+    # 检测是否为容器
+    if [ -f /.dockerenv ] || grep -q docker /proc/1/cgroup 2>/dev/null; then
+        VIRT_TYPE="docker"
+        IS_CONTAINER=true
+        echo -e "${Info} 虚拟化: ${Yellow}Docker 容器${Reset}"
+        return
+    fi
+    
+    if [ -f /run/.containerenv ]; then
+        VIRT_TYPE="podman"
+        IS_CONTAINER=true
+        echo -e "${Info} 虚拟化: ${Yellow}Podman 容器${Reset}"
+        return
+    fi
+    
+    # 使用 systemd-detect-virt
+    if command -v systemd-detect-virt &>/dev/null; then
+        VIRT_TYPE=$(systemd-detect-virt 2>/dev/null)
+        if [ "$VIRT_TYPE" != "none" ] && [ -n "$VIRT_TYPE" ]; then
+            case "$VIRT_TYPE" in
+                kvm)
+                    echo -e "${Info} 虚拟化: ${Cyan}KVM${Reset}"
+                    ;;
+                vmware)
+                    echo -e "${Info} 虚拟化: ${Cyan}VMware${Reset}"
+                    ;;
+                xen)
+                    echo -e "${Info} 虚拟化: ${Cyan}Xen${Reset}"
+                    ;;
+                microsoft|hyperv)
+                    VIRT_TYPE="hyper-v"
+                    echo -e "${Info} 虚拟化: ${Cyan}Hyper-V${Reset}"
+                    ;;
+                oracle|virtualbox)
+                    VIRT_TYPE="virtualbox"
+                    echo -e "${Info} 虚拟化: ${Cyan}VirtualBox${Reset}"
+                    ;;
+                lxc|lxc-libvirt)
+                    VIRT_TYPE="lxc"
+                    IS_CONTAINER=true
+                    echo -e "${Info} 虚拟化: ${Yellow}LXC 容器${Reset}"
+                    ;;
+                openvz)
+                    VIRT_TYPE="openvz"
+                    IS_CONTAINER=true
+                    echo -e "${Info} 虚拟化: ${Yellow}OpenVZ${Reset}"
+                    ;;
+                *)
+                    echo -e "${Info} 虚拟化: ${Cyan}${VIRT_TYPE}${Reset}"
+                    ;;
+            esac
+            return
+        fi
+    fi
+    
+    # 备用检测方法
+    if [ -f /sys/class/dmi/id/product_name ]; then
+        local product=$(cat /sys/class/dmi/id/product_name 2>/dev/null)
+        case "$product" in
+            *"Virtual Machine"*|*"Hyper-V"*)
+                VIRT_TYPE="hyper-v"
+                echo -e "${Info} 虚拟化: ${Cyan}Hyper-V${Reset}"
+                return
+                ;;
+            *"VMware"*)
+                VIRT_TYPE="vmware"
+                echo -e "${Info} 虚拟化: ${Cyan}VMware${Reset}"
+                return
+                ;;
+            *"VirtualBox"*)
+                VIRT_TYPE="virtualbox"
+                echo -e "${Info} 虚拟化: ${Cyan}VirtualBox${Reset}"
+                return
+                ;;
+            *"KVM"*|*"QEMU"*)
+                VIRT_TYPE="kvm"
+                echo -e "${Info} 虚拟化: ${Cyan}KVM/QEMU${Reset}"
+                return
+                ;;
+        esac
+    fi
+    
+    # 检查 /proc/cpuinfo
+    if grep -q "hypervisor" /proc/cpuinfo 2>/dev/null; then
+        VIRT_TYPE="unknown-vm"
+        echo -e "${Info} 虚拟化: ${Cyan}虚拟机 (类型未知)${Reset}"
+        return
+    fi
+    
+    # 物理机
+    VIRT_TYPE="none"
+    echo -e "${Info} 虚拟化: ${Green}物理机 / 无虚拟化${Reset}"
+}
+
 # ==================== 主函数 ====================
 detect_environment() {
     echo -e ""
@@ -170,6 +269,7 @@ detect_environment() {
     
     detect_os
     detect_arch
+    detect_virtualization
     detect_permissions
     detect_services
     detect_network
@@ -179,7 +279,7 @@ detect_environment() {
     echo -e ""
     
     # 导出环境变量
-    export ENV_TYPE OS_TYPE OS_DISTRO ARCH HAS_ROOT HAS_SYSTEMD HAS_DEVIL IS_NAT PUBLIC_IP LOCAL_IP
+    export ENV_TYPE OS_TYPE OS_DISTRO ARCH HAS_ROOT HAS_SYSTEMD HAS_DEVIL IS_NAT PUBLIC_IP LOCAL_IP VIRT_TYPE IS_CONTAINER
 }
 
 # ==================== 保存环境信息 ====================
@@ -202,6 +302,8 @@ HAS_DEVIL="$HAS_DEVIL"
 IS_NAT="$IS_NAT"
 PUBLIC_IP="$PUBLIC_IP"
 LOCAL_IP="$LOCAL_IP"
+VIRT_TYPE="$VIRT_TYPE"
+IS_CONTAINER="$IS_CONTAINER"
 EOF
     
     echo -e "${Info} 环境信息已保存到: $config_file"
@@ -228,6 +330,8 @@ show_env_info() {
     echo -e " 环境类型: ${Yellow}${ENV_TYPE}${Reset}"
     echo -e " 操作系统: ${Cyan}${OS_TYPE} (${OS_DISTRO})${Reset}"
     echo -e " 架构:     ${Cyan}${ARCH}${Reset}"
+    echo -e " 虚拟化:   ${Cyan}${VIRT_TYPE:-未知}${Reset}"
+    [ "$IS_CONTAINER" = true ] && echo -e " 容器环境: ${Yellow}是${Reset}"
     echo -e " Root权限: $([ "$HAS_ROOT" = true ] && echo "${Green}是${Reset}" || echo "${Red}否${Reset}")"
     echo -e " Systemd:  $([ "$HAS_SYSTEMD" = true ] && echo "${Green}是${Reset}" || echo "${Red}否${Reset}")"
     echo -e " Devil:    $([ "$HAS_DEVIL" = true ] && echo "${Green}是${Reset}" || echo "${Red}否${Reset}")"

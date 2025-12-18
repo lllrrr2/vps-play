@@ -41,6 +41,7 @@ init_environment() {
         # 静默检测
         detect_os_silent
         detect_arch_silent
+        detect_virt_silent
         detect_permissions_silent
         detect_services_silent
         detect_network_silent
@@ -134,6 +135,21 @@ determine_env_type_silent() {
         ENV_TYPE="vps"
     else
         ENV_TYPE="limited"
+    fi
+}
+
+detect_virt_silent() {
+    IS_CONTAINER=false
+    VIRT_TYPE="none"
+    
+    if [ -f /.dockerenv ] || grep -q docker /proc/1/cgroup 2>/dev/null; then
+        VIRT_TYPE="docker"
+        IS_CONTAINER=true
+    elif [ -f /run/.containerenv ]; then
+        VIRT_TYPE="podman"
+        IS_CONTAINER=true
+    elif command -v systemd-detect-virt &>/dev/null; then
+        VIRT_TYPE=$(systemd-detect-virt 2>/dev/null || echo "none")
     fi
 }
 
@@ -263,6 +279,7 @@ show_main_menu() {
     echo -e " ${Green}6.${Reset}  Cloudflared 隧道"
     echo -e " ${Green}7.${Reset}  哪吒监控"
     echo -e " ${Green}8.${Reset}  WARP 代理"
+    echo -e " ${Green}9.${Reset}  Docker 管理"
     echo -e "${Green}---------------------------------------------------${Reset}"
     echo -e " ${Yellow}系统工具${Reset}"
     echo -e " ${Green}11.${Reset} 端口管理"
@@ -345,6 +362,14 @@ show_main_menu() {
                     bash "$SCRIPT_DIR/modules/warp/manager.sh"
                 else
                     echo -e "${Error} WARP 模块未找到"
+                fi
+                ;;
+            9)
+                # Docker 模块
+                if [ -f "$SCRIPT_DIR/modules/docker/manager.sh" ]; then
+                    bash "$SCRIPT_DIR/modules/docker/manager.sh"
+                else
+                    echo -e "${Error} Docker 模块未找到"
                 fi
                 ;;
             11)
