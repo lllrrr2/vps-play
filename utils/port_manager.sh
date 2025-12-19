@@ -11,10 +11,14 @@ PORT_METHOD=""  # devil/iptables/socat/direct
 
 # ==================== 检测端口管理方式 ====================
 detect_port_method() {
-    if [ "$HAS_DEVIL" = true ]; then
+    # 实时检测权限
+    local has_root=false
+    [ "$(id -u)" = "0" ] && has_root=true
+    
+    if command -v devil &>/dev/null; then
         PORT_METHOD="devil"
         echo -e "${Info} 端口管理: ${Cyan}devil${Reset}"
-    elif [ "$HAS_ROOT" = true ] && command -v iptables &>/dev/null; then
+    elif [ "$has_root" = true ] && command -v iptables &>/dev/null; then
         PORT_METHOD="iptables"
         echo -e "${Info} 端口管理: ${Cyan}iptables${Reset}"
     elif command -v socat &>/dev/null; then
@@ -134,6 +138,12 @@ del_port_iptables() {
 # ==================== 列出端口映射 (iptables) ====================
 list_ports_iptables() {
     echo -e "${Info} 端口映射规则:"
+    if [ "$(id -u)" != "0" ]; then
+        echo -e "${Error} iptables 需要 root 权限"
+        echo -e "${Tip} NAT VPS 可使用 socat 进行端口转发"
+        echo -e "${Tip} 或使用 ss -tlnp 查看监听端口"
+        return 1
+    fi
     iptables -t nat -L PREROUTING -n -v --line-numbers | grep REDIRECT
 }
 
