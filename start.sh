@@ -38,6 +38,14 @@ fi
 # 方法4：最终回退
 [ -z "$SCRIPT_DIR" ] && SCRIPT_DIR="$HOME/vps-play"
 
+# 健全性检查: 防止路径误判为子目录
+if [[ "$SCRIPT_DIR" == */utils ]] || [[ "$SCRIPT_DIR" == */modules ]]; then
+    SCRIPT_DIR=$(dirname "$SCRIPT_DIR")
+fi
+
+# 进入工作目录，确保相对路径正确
+cd "$SCRIPT_DIR" 2>/dev/null
+
 WORK_DIR="$HOME/.vps-play"
 
 # 加载工具库（静默失败）
