@@ -339,6 +339,7 @@ show_main_menu() {
     echo -e " ${Green}7.${Reset}  哪吒监控"
     echo -e " ${Green}8.${Reset}  WARP 代理"
     echo -e " ${Green}9.${Reset}  Docker 管理"
+    echo -e " ${Green}10.${Reset} VPS 测评"
     echo -e "${Green}---------------------------------------------------${Reset}"
     echo -e " ${Yellow}系统工具${Reset}"
     echo -e " ${Green}11.${Reset} 端口管理"
@@ -413,6 +414,9 @@ run_module() {
                 ;;
             9)
                 run_module "Docker" "modules/docker/manager.sh"
+                ;;
+            10)
+                run_module "VPS测评" "modules/benchmark/manager.sh"
                 ;;
             11)
                 if type port_manage_menu &>/dev/null; then

@@ -83,6 +83,7 @@ download_file "modules/cloudflared/manager.sh"
 download_file "modules/nezha/manager.sh"
 download_file "modules/warp/manager.sh"
 download_file "modules/docker/manager.sh"
+download_file "modules/benchmark/manager.sh"
 
 echo -e "${Green}[信息]${Reset} 下载保活模块..."
 download_file "keepalive/manager.sh"
