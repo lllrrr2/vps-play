@@ -65,7 +65,8 @@ download_cloudflared() {
     chmod +x cloudflared
     
     echo -e "${Info} Cloudflared 下载完成"
-    echo -e "${Info} 版本: $($CFD_BIN version 2>/dev/null | head -1)"
+    local version=$($CFD_BIN --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    [ -n "$version" ] && echo -e "${Info} 版本: ${Green}${version}${Reset}" || echo -e "${Info} 已安装"
 }
 
 # ==================== Tunnel 管理 ====================
