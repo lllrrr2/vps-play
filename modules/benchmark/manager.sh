@@ -341,10 +341,12 @@ run_speedtest() {
 
 run_traceroute() {
     echo -e "${Info} 回程路由测试..."
+    echo -e ""
     
     if [ "$is_serv00" = true ]; then
         echo -e "${Warning} Serv00 可能不支持完整回程测试"
         echo -e "${Tip} 使用简化测试..."
+        echo -e ""
         
         read -p "输入目标 IP (默认: 114.114.114.114): " target_ip
         target_ip=${target_ip:-114.114.114.114}
@@ -355,8 +357,58 @@ run_traceroute() {
             echo -e "${Error} traceroute 不可用"
         fi
     else
-        # 使用 NextTrace
-        curl -sL https://github.com/nxtrace/NTrace-core/raw/main/AutoTrace.sh | bash
+        echo -e " ${Green}1.${Reset} NextTrace (推荐)"
+        echo -e " ${Green}2.${Reset} 融合怪回程测试"
+        echo -e " ${Green}3.${Reset} 简单 traceroute"
+        echo -e " ${Green}0.${Reset} 返回"
+        echo -e ""
+        read -p "请选择 [0-3]: " trace_choice
+        
+        case "$trace_choice" in
+            1)
+                # NextTrace 官方安装
+                echo -e "${Info} 安装 NextTrace..."
+                if command -v nexttrace &>/dev/null; then
+                    echo -e "${Info} NextTrace 已安装"
+                else
+                    # 使用官方安装脚本
+                    curl -Ls https://nxtrace.org/nt | bash 2>/dev/null || \
+                    bash <(curl -Ls https://raw.githubusercontent.com/nxtrace/NTrace-core/main/nt_install.sh) 2>/dev/null
+                fi
+                
+                if command -v nexttrace &>/dev/null; then
+                    echo -e ""
+                    read -p "输入目标 IP (默认: 114.114.114.114): " target_ip
+                    target_ip=${target_ip:-114.114.114.114}
+                    nexttrace "$target_ip"
+                else
+                    echo -e "${Error} NextTrace 安装失败"
+                    echo -e "${Tip} 请手动安装: curl -Ls https://nxtrace.org/nt | bash"
+                fi
+                ;;
+            2)
+                # 使用融合怪的回程测试
+                echo -e "${Info} 使用融合怪回程测试..."
+                cd "$BENCH_DIR"
+                curl -sL https://github.com/spiritLHLS/ecs/raw/main/ecs.sh -o ecs.sh 2>/dev/null
+                if [ -f ecs.sh ]; then
+                    chmod +x ecs.sh
+                    bash ecs.sh -m 4
+                else
+                    echo -e "${Error} 下载失败"
+                fi
+                ;;
+            3)
+                read -p "输入目标 IP (默认: 114.114.114.114): " target_ip
+                target_ip=${target_ip:-114.114.114.114}
+                traceroute -m 30 "$target_ip" 2>/dev/null || \
+                tracepath "$target_ip" 2>/dev/null || \
+                echo -e "${Error} traceroute/tracepath 不可用"
+                ;;
+            0)
+                return
+                ;;
+        esac
     fi
 }
 
