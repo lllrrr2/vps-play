@@ -8,15 +8,17 @@
   - 普通VPS (有root权限)
   - NAT VPS (端口映射)
   - FreeBSD 系统
-  - Serv00/Hostuno 特殊环境
+  - Serv00/Hostuno 特殊环境（自动检测并提示不兼容模块）
   
 - 🛠️ **统一管理**: 一个脚本管理所有服务
-  - sing-box 节点
+  - sing-box 节点 (Hysteria2/TUIC/VLESS Reality)
   - GOST 流量中转
   - X-UI 可视化面板
-  - FRPC 内网穿透
+  - FRPC/FRPS 内网穿透
   - Cloudflared 隧道
   - 哪吒监控
+  - WARP 代理
+  - Docker 管理
 
 - 🔧 **智能端口管理**: 自动适配端口管理方式
   - devil (Serv00/Hostuno)
@@ -30,6 +32,12 @@
   - Cron定时任务
   - systemd 服务
 
+- 🧹 **系统清理**: 一键释放磁盘空间
+  - 清理包管理器缓存
+  - 清理日志文件
+  - 清理 Docker 垃圾
+  - 清理临时文件
+
 ## 📦 支持的环境
 
 | 环境类型 | 权限 | 端口管理 | 服务管理 | 状态 |
@@ -38,6 +46,19 @@
 | NAT VPS | root/limited | iptables/socat | systemd/cron | ✅ 支持 |
 | FreeBSD | root | direct | rc.d/cron | ✅ 支持 |
 | Serv00/Hostuno | limited | devil | cron | ✅ 支持 |
+
+### Serv00/Hostuno 兼容性
+
+| 模块 | 支持 | 说明 |
+|------|------|------|
+| sing-box | ✅ | 直接运行二进制文件 |
+| GOST | ✅ | 直接运行二进制文件 |
+| Cloudflared | ✅ | 推荐使用 |
+| FRPC | ✅ | 内网穿透客户端 |
+| 哪吒 Agent | ✅ | 监控探针 |
+| Docker | ❌ | 需要 root 权限 |
+| WARP | ❌ | 需要内核模块 |
+| X-UI | ❌ | 需要 Docker 或 root |
 
 ## 🚀 快速开始
 
@@ -58,15 +79,13 @@ vps-play
 
 ```bash
 # 启动主菜单
-./start.sh
+vps-play
+
+# 或直接运行
+bash ~/vps-play/start.sh
 
 # 环境检测
-./utils/env_detect.sh
-
-# 端口管理
-./utils/port_manager.sh add 12345 tcp
-./utils/port_manager.sh list
-./utils/port_manager.sh del 12345
+bash ~/vps-play/utils/env_detect.sh
 ```
 
 ## 📖 功能模块
@@ -74,17 +93,16 @@ vps-play
 ### 1. sing-box 节点
 
 支持多种协议的代理节点：
-- VMess
-- VLESS
-- Trojan
-- Hysteria2
-- TUIC
+- Hysteria2 (推荐)
+- TUIC v5
+- VLESS Reality
+- 自动生成分享链接
 
 ### 2. GOST 流量中转
 
-强大的流量中转工具：
+强大的流量中转工具 (v3)：
+- TCP/UDP 端口转发
 - 多协议支持
-- 智能端口分配
 - 自动配置生成
 
 ### 3. X-UI 面板
@@ -93,12 +111,13 @@ vps-play
 - Web界面管理
 - 多用户支持
 - 流量统计
+- (需要 Docker 或 root 权限)
 
-### 4. FRPC 内网穿透
+### 4. FRPC/FRPS 内网穿透
 
-内网穿透客户端：
+- FRPC 客户端：连接到远程服务器
+- FRPS 服务端：搭建自己的穿透服务器
 - 多隧道支持
-- 自动重连
 - 配置持久化
 
 ### 5. Cloudflared 隧道
@@ -106,6 +125,7 @@ vps-play
 Cloudflare Tunnel：
 - 无需公网IP
 - HTTPS支持
+- Quick Tunnel 快速体验
 - 免费使用
 
 ### 6. 哪吒监控
@@ -115,55 +135,74 @@ Cloudflare Tunnel：
 - 告警通知
 - 多服务器管理
 
+### 7. WARP 代理
+
+Cloudflare WARP：
+- 解锁流媒体
+- 更换出口IP
+- WARP+ 支持
+- (需要 root 和内核模块)
+
+### 8. Docker 管理
+
+容器管理：
+- 一键安装 Docker
+- Docker Compose
+- 镜像加速配置
+- (不支持 Serv00)
+
 ## 🔧 系统工具
 
-### 环境检测
-
-自动检测并识别：
-- 操作系统类型
-- 架构信息
-- 权限级别
-- 网络环境（公网/NAT）
-- 可用服务（systemd/devil）
-
 ### 端口管理
-
-统一的端口管理接口：
-- 自动选择最佳管理方式
-- 支持TCP/UDP协议
+- 添加/删除端口
 - 端口可用性检查
 - 随机端口分配
 
-### 保活设置
+### 进程管理
+- 查看运行中的进程
+- 启动/停止服务
 
-多种保活方案：
-- 进程监控
-- 定时重启
-- 远程复活
-- 心跳检测
+### 网络工具
+- IP 信息查看
+- 端口连通性测试
+
+### 环境检测
+- 操作系统类型
+- 架构信息
+- 权限级别
+- 网络环境
+
+### 保活设置
+- 进程保活配置
+- Cron 任务管理
+
+### 系统清理
+- 释放磁盘空间
+- 清理缓存和日志
 
 ## 📁 项目结构
 
 ```
-VPS-play/
+vps-play/
 ├── start.sh              # 主入口脚本
 ├── install.sh            # 一键安装脚本
 ├── utils/                # 工具库
 │   ├── env_detect.sh     # 环境检测
 │   ├── port_manager.sh   # 端口管理
 │   ├── process_manager.sh # 进程管理
-│   └── network.sh        # 网络工具
+│   ├── network.sh        # 网络工具
+│   └── system_clean.sh   # 系统清理
 ├── modules/              # 功能模块
 │   ├── singbox/          # sing-box
 │   ├── gost/             # GOST
 │   ├── xui/              # X-UI
 │   ├── frpc/             # FRPC
+│   ├── frps/             # FRPS
 │   ├── cloudflared/      # Cloudflared
-│   └── nezha/            # 哪吒监控
+│   ├── nezha/            # 哪吒监控
+│   ├── warp/             # WARP
+│   └── docker/           # Docker
 ├── keepalive/            # 保活脚本
-│   ├── local_keepalive.sh
-│   └── remote_revive.sh
-├── config/               # 配置文件
 └── README.md
 ```
 
@@ -172,10 +211,12 @@ VPS-play/
 ### v1.0.0 (2025-12-19)
 
 - ✨ 初始版本发布
+- ✅ 9个功能模块
 - ✅ 环境自动检测
+- ✅ Serv00/Hostuno 兼容性检测
 - ✅ 统一端口管理
-- ✅ 基础框架搭建
-- 🚧 各功能模块开发中
+- ✅ 系统清理功能
+- ✅ 多种保活方式
 
 ## 🤝 贡献
 
@@ -191,11 +232,11 @@ MIT License
 - [serv00-play](https://github.com/frankiejun/serv00-play)
 - [GostXray](https://github.com/hxzlplp7/GostXray)
 - [serv00-xui](https://github.com/hxzlplp7/serv00-xui)
+- [Misaka-blog sing-box](https://github.com/Misaka-blog)
 
 ## 📞 联系方式
 
 - GitHub Issues: [提交问题](https://github.com/hxzlplp7/vps-play/issues)
-- Telegram: [加入讨论](https://t.me/YOUR_GROUP)
 
 ---
 

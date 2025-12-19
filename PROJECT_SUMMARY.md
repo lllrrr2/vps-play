@@ -1,183 +1,155 @@
 # VPS-play 项目总结
 
-## 📋 项目概述
+## 项目概述
 
-**VPS-play** 是一个通用的 VPS 管理工具，从 serv00-play 项目演化而来，扩展支持多种 VPS 环境。
+VPS-play 是一个通用的 VPS 管理工具，设计目标是在一个统一的界面下管理多种服务和工具，同时自动适配不同的运行环境。
 
-## ✅ 已完成功能
+## 核心设计理念
 
-### 1. 核心框架 ✓
+### 1. 环境自适应
 
-- **环境检测系统** (`utils/env_detect.sh`)
-  - 自动识别操作系统（Linux/FreeBSD）
-  - 检测发行版（Ubuntu/Debian/CentOS/Alpine/FreeBSD）
-  - 权限级别检测（root/sudo/limited）
-  - 服务管理检测（systemd/rc.d/cron）
-  - 网络环境检测（公网IP/NAT）
-  - 环境类型判断（VPS/NAT VPS/FreeBSD/Serv00）
+脚本会自动检测运行环境并调整行为：
+- **普通 VPS**: 使用 systemd 管理服务，iptables 管理端口
+- **NAT VPS**: 使用 socat 进行端口转发
+- **FreeBSD**: 使用 rc.d 或 cron 管理服务
+- **Serv00/Hostuno**: 使用 devil 管理端口，cron 保活
 
-- **端口管理系统** (`utils/port_manager.sh`)
-  - devil 支持（Serv00/Hostuno）
-  - iptables 支持（VPS端口映射）
-  - socat 支持（NAT环境转发）
-  - 直接绑定支持（普通VPS）
-  - 统一的接口（add/del/list/check/random）
-  - 端口可用性检查
-  - 随机端口分配
+### 2. 模块化架构
 
-- **主程序** (`start.sh`)
-  - 友好的菜单界面
-  - 环境信息显示
-  - 模块管理框架
-  - 工具集成
-
-- **安装脚本** (`install.sh`)
-  - 一键安装
-  - 自动依赖检查
-  - 快捷命令创建
-  - 环境配置
-
-## 🚧 待开发模块
-
-### 模块列表
-
-1. **sing-box** - 通用代理节点
-2. **GOST** - 流量中转（可复用现有 gost-serv00.sh）
-3. **X-UI** - 可视化面板（可复用现有 x-ui-install.sh）
-4. **FRPC** - 内网穿透
-5. **Cloudflared** - Cloudflare隧道
-6. **哪吒监控** - 服务器监控
-
-### 工具模块
-
-1. **进程管理** (`utils/process_manager.sh`)
-   - 进程启动/停止/重启
-   - 进程状态监控
-   - 自动重启
-   - PID管理
-
-2. **保活系统** (`keepalive/`)
-   - 本地保活（进程监控）
-   - 远程复活（SSH定时任务）
-   - Cron定时任务
-   - systemd服务
-
-3. **网络工具** (`utils/network.sh`)
-   - IP获取
-   - 端口测试
-   - 连通性检查
-   - DNS解析
-
-## 📁 项目结构
-
+每个功能独立成模块，便于维护和扩展：
 ```
-VPS-play/
-├── start.sh                 ✅ 主入口
-├── install.sh               ✅ 安装脚本
-├── README.md                ✅ 项目文档
-├── .gitignore               ✅ Git配置
-├── utils/                   
-│   ├── env_detect.sh        ✅ 环境检测
-│   ├── port_manager.sh      ✅ 端口管理
-│   ├── process_manager.sh   🚧 进程管理
-│   └── network.sh           🚧 网络工具
-├── modules/                 
-│   ├── singbox/             🚧 sing-box
-│   ├── gost/                🚧 GOST
-│   ├── xui/                 🚧 X-UI
-│   ├── frpc/                🚧 FRPC
-│   ├── cloudflared/         🚧 Cloudflared
-│   └── nezha/               🚧 哪吒监控
-├── keepalive/               
-│   ├── local_keepalive.sh   🚧 本地保活
-│   └── remote_revive.sh     🚧 远程复活
-└── config/                  
-    └── config.json          🚧 配置文件
+modules/
+├── singbox/    # sing-box 代理节点
+├── gost/       # GOST 流量中转
+├── xui/        # X-UI 面板
+├── frpc/       # FRPC 客户端
+├── frps/       # FRPS 服务端
+├── cloudflared/# Cloudflare 隧道
+├── nezha/      # 哪吒监控
+├── warp/       # WARP 代理
+└── docker/     # Docker 管理
 ```
 
-## 🎯 环境支持矩阵
+### 3. 统一工具库
 
-| 环境类型 | 检测 | 端口管理 | 进程管理 | 保活 | 状态 |
-|---------|-----|---------|---------|------|------|
-| 普通VPS (root) | ✅ | ✅ direct/iptables | 🚧 systemd | 🚧 | 部分支持 |
-| NAT VPS | ✅ | ✅ iptables/socat | 🚧 systemd/cron | 🚧 | 部分支持 |
-| FreeBSD (root) | ✅ | ✅ direct | 🚧 rc.d/cron | 🚧 | 部分支持 |
-| Serv00/Hostuno | ✅ | ✅ devil | 🚧 cron | 🚧 | 部分支持 |
+所有模块共享一套工具库：
+- `env_detect.sh` - 环境检测
+- `port_manager.sh` - 端口管理
+- `process_manager.sh` - 进程管理
+- `network.sh` - 网络工具
+- `system_clean.sh` - 系统清理
 
-## 🔄 与现有项目的关系
+## 功能列表
 
-### 1. GostXray 项目
-- 可以将 `gost-serv00.sh` 移植为 `modules/gost/` 模块
-- 保留原有功能，增加环境自适应
+### 代理节点
+| 模块 | 功能 | Serv00 支持 |
+|------|------|-------------|
+| sing-box | Hysteria2/TUIC/VLESS Reality | ✅ |
+| GOST | TCP/UDP 端口转发 | ✅ |
+| X-UI | 可视化面板 | ❌ |
 
-### 2. serv00-xui 项目
-- 可以将 `x-ui-install.sh` 移植为 `modules/xui/` 模块
-- 适配不同环境的安装方式
+### 内网穿透
+| 模块 | 功能 | Serv00 支持 |
+|------|------|-------------|
+| FRPC | 内网穿透客户端 | ✅ |
+| FRPS | 内网穿透服务端 | ❌ |
+| Cloudflared | Cloudflare Tunnel | ✅ |
 
-### 3. serv00-play 项目
-- 参考其模块化设计
-- 复用其保活、监控等功能
+### 系统工具
+| 模块 | 功能 | Serv00 支持 |
+|------|------|-------------|
+| 哪吒监控 | 服务器监控 Agent | ✅ |
+| WARP | IP 代理 | ❌ |
+| Docker | 容器管理 | ❌ |
 
-## 📝 下一步计划
+### 内置工具
+- 端口管理 (添加/删除/列出)
+- 进程管理 (启动/停止/查看)
+- 网络工具 (IP/端口测试)
+- 环境检测 (系统/权限/网络)
+- 保活设置 (Cron 任务)
+- 系统清理 (释放磁盘空间)
 
-### Phase 1: 核心工具完善
-- [ ] 完成进程管理工具
-- [ ] 完成网络工具
-- [ ] 完成保活系统
+## 技术实现
 
-### Phase 2: 模块迁移
-- [ ] 迁移 GOST 模块（基于 gost-serv00.sh）
-- [ ] 迁移 X-UI 模块（基于 x-ui-install.sh）
-- [ ] 测试多环境兼容性
-
-### Phase 3: 新模块开发
-- [ ] sing-box 模块
-- [ ] FRPC 模块
-- [ ] Cloudflared 模块
-- [ ] 哪吒监控模块
-
-### Phase 4: 优化与发布
-- [ ] 完善文档
-- [ ] 创建 GitHub 仓库
-- [ ] 发布第一个正式版本
-
-## 💡 使用建议
-
-### 目前可用功能
-
+### 路径检测
 ```bash
-# 环境检测
-cd ~/VPS-play
-./utils/env_detect.sh
-
-# 端口管理
-./utils/port_manager.sh add 12345 tcp
-./utils/port_manager.sh list
-./utils/port_manager.sh check 12345
-./utils/port_manager.sh random 10000 65535
-
-# 主菜单
-./start.sh
+# 多方法检测脚本目录
+1. BASH_SOURCE[0] + dirname
+2. $0 + dirname
+3. 常见安装路径遍历
+4. 健全性检查 (防止误判为子目录)
 ```
 
-### 等待后续更新
+### 环境缓存
+```bash
+# 首次检测后保存到 env.conf
+~/.vps-play/env.conf
+# 后续启动直接加载，加速启动
+```
 
-- 各功能模块正在开发中
-- 可以先使用现有的 gost-serv00.sh 和 x-ui-install.sh
-- VPS-play 完善后可平滑迁移
+### 错误处理
+```bash
+# 函数存在性检查
+if type function_name &>/dev/null; then
+    function_name
+else
+    echo "功能未加载，提供备用方案"
+fi
+```
 
-## 🎉 总结
+## 使用方式
 
-VPS-play 项目已经搭建起基础框架，核心的环境检测和端口管理功能已经完成。
+### 安装
+```bash
+curl -sL https://raw.githubusercontent.com/hxzlplp7/vps-play/main/install.sh | bash
+```
 
-这为后续的模块开发提供了坚实的基础，所有模块都可以基于统一的环境检测和端口管理接口进行开发。
+### 运行
+```bash
+vps-play
+```
 
-**优势：**
-- 统一的代码风格
-- 自动环境适配
-- 模块化设计
-- 易于维护和扩展
+### 更新
+```bash
+# 在菜单中选择 16. 更新脚本
+# 或重新运行安装命令
+```
 
-**当前状态：** 框架完成，模块开发中
+## 文件结构
 
-**建议：** 暂时继续使用 gost-serv00.sh 和 x-ui-install.sh，等 VPS-play 模块完善后再迁移
+```
+~/vps-play/           # 安装目录
+├── start.sh          # 主入口
+├── install.sh        # 安装脚本
+├── utils/            # 工具库
+├── modules/          # 功能模块
+├── keepalive/        # 保活脚本
+└── config/           # 配置目录
+
+~/.vps-play/          # 数据目录
+├── env.conf          # 环境配置缓存
+├── gost/             # GOST 数据
+├── singbox/          # sing-box 数据
+└── ...               # 其他模块数据
+
+~/bin/vps-play        # 快捷命令
+```
+
+## 版本历史
+
+### v1.0.0 (2025-12-19)
+- 初始正式版本
+- 9个功能模块
+- 5个系统工具
+- 多环境支持
+- Serv00/Hostuno 完整兼容
+
+## 许可证
+
+MIT License
+
+## 相关链接
+
+- GitHub: https://github.com/hxzlplp7/vps-play
+- Issues: https://github.com/hxzlplp7/vps-play/issues
