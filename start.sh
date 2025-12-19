@@ -6,39 +6,36 @@
 version="1.0.0"
 
 # ==================== 初始化 ====================
-# 获取脚本目录 - 解析所有符号链接，确保得到真实路径
+# 获取脚本目录 - 兼容 Linux 和 FreeBSD
 SCRIPT_DIR=""
 
-# 方法1：BASH_SOURCE（优先） → 解析真实路径
-if [ -n "${BASH_SOURCE[0]}" ]; then
-    if command -v readlink >/dev/null 2>&1; then
-        _src=$(readlink -f "${BASH_SOURCE[0]}")
-    else
-        _src="${BASH_SOURCE[0]}"
+# 方法1：直接从 BASH_SOURCE 获取（最可靠）
+if [ -n "${BASH_SOURCE[0]}" ] && [ "${BASH_SOURCE[0]}" != "bash" ]; then
+    _dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)
+    if [ -d "$_dir/modules" ] && [ -d "$_dir/utils" ]; then
+        SCRIPT_DIR="$_dir"
     fi
-    _dir=$(cd "$(dirname "$_src")" && pwd)
-    [ -d "$_dir/modules" ] && SCRIPT_DIR="$_dir"
 fi
 
-# 方法2：$0（当脚本直接执行时） → 解析真实路径
-if [ -z "$SCRIPT_DIR" ] && [ -n "$0" ] && [ "$0" != "bash" ]; then
-    if command -v readlink >/dev/null 2>&1; then
-        _src=$(readlink -f "$0")
-    else
-        _src="$0"
+# 方法2：从 $0 获取
+if [ -z "$SCRIPT_DIR" ] && [ -n "$0" ] && [ "$0" != "bash" ] && [ "$0" != "-bash" ]; then
+    _dir=$(cd "$(dirname "$0")" 2>/dev/null && pwd)
+    if [ -d "$_dir/modules" ] && [ -d "$_dir/utils" ]; then
+        SCRIPT_DIR="$_dir"
     fi
-    _dir=$(cd "$(dirname "$_src")" && pwd)
-    [ -d "$_dir/modules" ] && SCRIPT_DIR="$_dir"
 fi
 
-# 方法3：常见安装路径（兼容手动拷贝或软链接到其他目录的情况）
+# 方法3：常见安装路径
 if [ -z "$SCRIPT_DIR" ]; then
-    for _path in "$HOME/vps-play" "/root/vps-play" "/usr/local/vps-play" "$HOME/.vps-play"; do
-        [ -d "$_path/modules" ] && SCRIPT_DIR="$_path" && break
+    for _path in "$HOME/vps-play" "/root/vps-play" "/usr/local/vps-play"; do
+        if [ -d "$_path/modules" ] && [ -d "$_path/utils" ]; then
+            SCRIPT_DIR="$_path"
+            break
+        fi
     done
 fi
 
-# 方法4：最终回退（不影响功能，只是给出友好提示）
+# 方法4：最终回退
 [ -z "$SCRIPT_DIR" ] && SCRIPT_DIR="$HOME/vps-play"
 
 WORK_DIR="$HOME/.vps-play"
@@ -391,20 +388,39 @@ run_module() {
                 run_module "Docker" "modules/docker/manager.sh"
                 ;;
             11)
-                port_manage_menu
+                if type port_manage_menu &>/dev/null; then
+                    port_manage_menu
+                else
+                    echo -e "${Warning} 端口管理工具未加载"
+                    echo -e "${Tip} 请尝试重新安装: curl -sL https://raw.githubusercontent.com/hxzlplp7/vps-play/main/install.sh | bash"
+                fi
                 ;;
             12)
                 # 进程管理
-                echo -e "${Info} 进程管理工具:"
-                list_processes
+                if type list_processes &>/dev/null; then
+                    echo -e "${Info} 进程管理工具:"
+                    list_processes
+                else
+                    echo -e "${Warning} 进程管理工具未加载"
+                    echo -e "${Tip} 可使用: ps aux | grep -E 'gost|sing-box|cloudflared'"
+                fi
                 ;;
             13)
                 # 网络工具
-                network_info
+                if type network_info &>/dev/null; then
+                    network_info
+                else
+                    echo -e "${Warning} 网络工具未加载"
+                    echo -e "${Tip} 查看 IP: curl -s ip.sb"
+                fi
                 ;;
             14)
-                detect_environment
-                show_env_info
+                if type detect_environment &>/dev/null; then
+                    detect_environment
+                    show_env_info 2>/dev/null || echo -e "${Info} 环境检测完成"
+                else
+                    echo -e "${Warning} 环境检测工具未加载"
+                fi
                 ;;
             15)
                 # 保活系统
@@ -427,7 +443,23 @@ run_module() {
                 fi
                 ;;
             17)
-                bash "$SCRIPT_DIR/utils/system_clean.sh"
+                # 系统清理 - 尝试多个可能的路径
+                local clean_script=""
+                for _p in "$SCRIPT_DIR/utils/system_clean.sh" "$HOME/vps-play/utils/system_clean.sh" "/root/vps-play/utils/system_clean.sh"; do
+                    if [ -f "$_p" ]; then
+                        clean_script="$_p"
+                        break
+                    fi
+                done
+                
+                if [ -n "$clean_script" ]; then
+                    bash "$clean_script"
+                else
+                    echo -e "${Warning} 系统清理工具未找到"
+                    echo -e "${Tip} 手动清理命令:"
+                    echo -e "  apt-get clean && apt-get autoremove -y"
+                    echo -e "  rm -rf /tmp/* /var/log/*.gz"
+                fi
                 ;;
             0)
                 echo -e "${Info} 感谢使用 VPS-play!"

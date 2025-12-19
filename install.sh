@@ -91,10 +91,10 @@ download_file "keepalive/manager.sh"
 echo -e "${Green}[信息]${Reset} 创建快捷命令..."
 mkdir -p "$HOME/bin"
 
+# 使用绝对路径避免解析问题
 cat > "$HOME/bin/vps-play" << SHORTCUT_EOF
 #!/bin/bash
-cd "$INSTALL_DIR"
-./start.sh "\$@"
+exec bash "$INSTALL_DIR/start.sh" "\$@"
 SHORTCUT_EOF
 
 chmod +x "$HOME/bin/vps-play"
