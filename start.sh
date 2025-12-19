@@ -6,32 +6,39 @@
 version="1.0.0"
 
 # ==================== 初始化 ====================
-# 获取脚本目录 - 优先使用固定路径
+# 获取脚本目录 - 解析所有符号链接，确保得到真实路径
 SCRIPT_DIR=""
 
-# 方法1: 尝试从 BASH_SOURCE 获取
-if [ -z "$SCRIPT_DIR" ] && [ -n "${BASH_SOURCE[0]}" ]; then
-    _dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+# 方法1：BASH_SOURCE（优先） → 解析真实路径
+if [ -n "${BASH_SOURCE[0]}" ]; then
+    if command -v readlink >/dev/null 2>&1; then
+        _src=$(readlink -f "${BASH_SOURCE[0]}")
+    else
+        _src="${BASH_SOURCE[0]}"
+    fi
+    _dir=$(cd "$(dirname "$_src")" && pwd)
     [ -d "$_dir/modules" ] && SCRIPT_DIR="$_dir"
 fi
 
-# 方法2: 尝试从 $0 获取
+# 方法2：$0（当脚本直接执行时） → 解析真实路径
 if [ -z "$SCRIPT_DIR" ] && [ -n "$0" ] && [ "$0" != "bash" ]; then
-    _dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"
+    if command -v readlink >/dev/null 2>&1; then
+        _src=$(readlink -f "$0")
+    else
+        _src="$0"
+    fi
+    _dir=$(cd "$(dirname "$_src")" && pwd)
     [ -d "$_dir/modules" ] && SCRIPT_DIR="$_dir"
 fi
 
-# 方法3: 尝试常见安装路径
+# 方法3：常见安装路径（兼容手动拷贝或软链接到其他目录的情况）
 if [ -z "$SCRIPT_DIR" ]; then
-    for _path in "$HOME/vps-play" "/root/vps-play" "/usr/local/vps-play"; do
-        if [ -d "$_path/modules" ]; then
-            SCRIPT_DIR="$_path"
-            break
-        fi
+    for _path in "$HOME/vps-play" "/root/vps-play" "/usr/local/vps-play" "$HOME/.vps-play"; do
+        [ -d "$_path/modules" ] && SCRIPT_DIR="$_path" && break
     done
 fi
 
-# 方法4: 最终回退
+# 方法4：最终回退（不影响功能，只是给出友好提示）
 [ -z "$SCRIPT_DIR" ] && SCRIPT_DIR="$HOME/vps-play"
 
 WORK_DIR="$HOME/.vps-play"
