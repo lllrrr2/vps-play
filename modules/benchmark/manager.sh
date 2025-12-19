@@ -109,78 +109,90 @@ run_ecs_shell() {
 run_ecs_go() {
     echo -e "${Info} Go 版本融合怪 (goecs)"
     echo -e "${Tip} 来源: github.com/oneclickvirt/ecs"
-    echo -e "${Tip} 特点: 无环境依赖，支持非 root，支持 FreeBSD"
+    echo -e "${Tip} 特点: 无环境依赖，支持非 root，自动适配架构"
     echo -e ""
     
     cd "$BENCH_DIR"
     
-    # 下载 goecs.sh
-    echo -e "${Info} 下载安装脚本..."
+    # 清理旧文件
+    rm -f goecs goecs.sh goecs_*.zip
     
-    local goecs_url="https://raw.githubusercontent.com/oneclickvirt/ecs/master/goecs.sh"
-    local goecs_cdn="https://cdn.spiritlhl.net/https://raw.githubusercontent.com/oneclickvirt/ecs/master/goecs.sh"
+    # 1. 确定架构和系统
+    local os="linux"
+    [ "$(uname)" = "FreeBSD" ] && os="freebsd"
     
-    if curl -sL "$goecs_cdn" -o goecs.sh 2>/dev/null; then
-        echo -e "${Info} 使用 CDN 加速下载成功"
-    elif curl -sL "$goecs_url" -o goecs.sh 2>/dev/null; then
-        echo -e "${Info} 下载成功"
-    else
-        echo -e "${Error} 下载失败"
-        echo -e "${Tip} 请手动运行:"
-        echo -e "  curl -L $goecs_url -o goecs.sh && chmod +x goecs.sh && ./goecs.sh install && goecs"
-        return 1
-    fi
-    
-    chmod +x goecs.sh
-    
-    # 检查是否已安装 goecs
-    if command -v goecs &>/dev/null; then
-        echo -e "${Info} goecs 已安装，直接运行..."
-        goecs
-    else
-        echo -e "${Info} 安装 goecs..."
-        export noninteractive=true
-        ./goecs.sh install
-        
-        if command -v goecs &>/dev/null; then
-            echo -e "${Info} 安装成功，运行测试..."
-            goecs
-        elif [ -f "$HOME/.local/bin/goecs" ]; then
-            "$HOME/.local/bin/goecs"
-        elif [ -f "/usr/local/bin/goecs" ]; then
-            /usr/local/bin/goecs
-        else
-            echo -e "${Warning} goecs 未找到，尝试直接下载二进制文件..."
-            run_ecs_go_direct
-        fi
-    fi
-}
-
-# 直接下载二进制文件（备用方案）
-run_ecs_go_direct() {
     local arch="amd64"
     case "$(uname -m)" in
         x86_64) arch="amd64" ;;
         aarch64) arch="arm64" ;;
         armv7*) arch="arm" ;;
-        i386|i686) arch="386" ;;
     esac
     
-    local os="linux"
-    [ "$(uname)" = "FreeBSD" ] && os="freebsd"
+    local filename="goecs_${os}_${arch}"
     
-    local url="https://github.com/oneclickvirt/ecs/releases/latest/download/ecs_${os}_${arch}"
+    # 2. 尝试下载 (包括 CDN)
+    echo -e "${Info} 正在下载 ${filename}.zip ..."
     
-    echo -e "${Info} 下载二进制文件: ecs_${os}_${arch}"
+    local download_success=false
+    local urls=(
+        "https://cdn.spiritlhl.net/https://github.com/oneclickvirt/ecs/releases/latest/download/${filename}.zip"
+        "https://github.com/oneclickvirt/ecs/releases/latest/download/${filename}.zip"
+    )
     
-    if curl -sL "$url" -o goecs_bin 2>/dev/null; then
-        chmod +x goecs_bin
-        ./goecs_bin
-    else
-        echo -e "${Error} 下载失败"
-        echo -e "${Tip} 请访问 https://github.com/oneclickvirt/ecs/releases 手动下载"
+    for url in "${urls[@]}"; do
+        if curl -sL "$url" -o "${filename}.zip"; then
+            # 检查文件是否为有效的 zip (检查前几个字节)
+            if head -c 4 "${filename}.zip" | grep -q "PK"; then
+                download_success=true
+                echo -e "${Info} 下载成功"
+                break
+            fi
+        fi
+    done
+    
+    if [ "$download_success" = false ]; then
+        echo -e "${Error} 下载失败，请检查网络连接"
+        return 1
     fi
+    
+    # 3. 解压
+    echo -e "${Info} 正在解压..."
+    local unzip_success=false
+    
+    if command -v unzip &>/dev/null; then
+        unzip -o "${filename}.zip" >/dev/null && unzip_success=true
+    elif command -v python3 &>/dev/null; then
+        python3 -m zipfile -e "${filename}.zip" . && unzip_success=true
+    else
+        echo -e "${Error} 未找到 unzip 或 python3，无法解压"
+        return 1
+    fi
+    
+    if [ "$unzip_success" = true ]; then
+        # 4. 运行
+        if [ -f "goecs" ]; then
+            chmod +x goecs
+            
+            # 在 Serv00 上可能需要设置一些环境变量
+            echo -e "${Info} 启动 goecs..."
+            echo -e "${Tip} 如果遇到权限问题，请确保在自己的目录下运行"
+            echo -e ""
+            
+            # 使用 ./goecs 运行
+            ./goecs
+        else
+            echo -e "${Error} 解压后未找到 goecs 二进制文件"
+        fi
+    else
+        echo -e "${Error} 解压失败"
+    fi
+    
+    # 清理
+    rm -f "${filename}.zip"
 }
+
+# 移除旧的 direct 函数，因为已经合并
+# run_ecs_go_direct() { ... }
 
 run_ecs_ipcheck() {
     echo -e "${Info} IP 质量检测..."
