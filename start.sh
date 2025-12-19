@@ -55,6 +55,25 @@ WORK_DIR="$HOME/.vps-play"
 [ -f "$SCRIPT_DIR/utils/network.sh" ] && source "$SCRIPT_DIR/utils/network.sh"
 [ -f "$SCRIPT_DIR/utils/system_clean.sh" ] && source "$SCRIPT_DIR/utils/system_clean.sh"
 
+# 自动检测环境
+if type detect_environment &>/dev/null; then
+    ENV_CONF="$HOME/.vps-play/env.conf"
+    if [ -f "$ENV_CONF" ]; then
+        source "$ENV_CONF"
+    else
+        # 首次检测，不静默以便调试（或者重定向到日志）
+        detect_environment >/dev/null 2>&1
+        if type save_env_info &>/dev/null; then
+            save_env_info "$ENV_CONF" 2>/dev/null
+        fi
+    fi
+    
+    # 如果仍然未设置（例如配置文件为空或检测失败），尝试再次检测
+    if [ -z "$ENV_TYPE" ]; then
+        detect_environment >/dev/null 2>&1
+    fi
+fi
+
 # ==================== 颜色定义 ====================
 Green="\033[32m"
 Red="\033[31m"
