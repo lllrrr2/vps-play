@@ -179,7 +179,81 @@ run_ecs_go_direct() {
 
 run_ecs_ipcheck() {
     echo -e "${Info} IP 质量检测..."
-    bash <(wget -qO- bash.spiritlhl.net/ecs-ipcheck)
+    
+    if [ "$is_serv00" = true ]; then
+        echo -e "${Warning} Serv00 进程数受限，使用简化检测..."
+        echo -e ""
+        run_simple_ipcheck
+    else
+        bash <(wget -qO- bash.spiritlhl.net/ecs-ipcheck)
+    fi
+}
+
+# Serv00 友好的简化 IP 检测
+run_simple_ipcheck() {
+    echo -e "${Green}==================== IP 信息 ====================${Reset}"
+    
+    # 获取 IP
+    local ipv4=$(curl -s4m5 ip.sb 2>/dev/null || curl -s4m5 ifconfig.me 2>/dev/null)
+    local ipv6=$(curl -s6m5 ip.sb 2>/dev/null)
+    
+    echo -e " IPv4: ${Cyan}${ipv4:-无}${Reset}"
+    echo -e " IPv6: ${Cyan}${ipv6:-无}${Reset}"
+    echo -e ""
+    
+    if [ -n "$ipv4" ]; then
+        # IP 地理位置
+        echo -e "${Green}==================== IP 地理位置 ====================${Reset}"
+        local ip_info=$(curl -sm5 "https://ipapi.co/${ipv4}/json/" 2>/dev/null)
+        if [ -n "$ip_info" ]; then
+            local country=$(echo "$ip_info" | grep -o '"country_name":"[^"]*"' | cut -d'"' -f4)
+            local city=$(echo "$ip_info" | grep -o '"city":"[^"]*"' | cut -d'"' -f4)
+            local org=$(echo "$ip_info" | grep -o '"org":"[^"]*"' | cut -d'"' -f4)
+            local asn=$(echo "$ip_info" | grep -o '"asn":"[^"]*"' | cut -d'"' -f4)
+            
+            echo -e " 国家: ${Cyan}${country:-未知}${Reset}"
+            echo -e " 城市: ${Cyan}${city:-未知}${Reset}"
+            echo -e " ASN:  ${Cyan}${asn:-未知}${Reset}"
+            echo -e " 组织: ${Cyan}${org:-未知}${Reset}"
+        fi
+        echo -e ""
+        
+        # WARP 状态
+        echo -e "${Green}==================== WARP 状态 ====================${Reset}"
+        local warp=$(curl -sm5 https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null | grep "warp=" | cut -d= -f2)
+        case "$warp" in
+            on) echo -e " WARP: ${Green}已启用${Reset}" ;;
+            plus) echo -e " WARP: ${Green}WARP+ 已启用${Reset}" ;;
+            off) echo -e " WARP: ${Yellow}未启用${Reset}" ;;
+            *) echo -e " WARP: ${Red}检测失败${Reset}" ;;
+        esac
+        echo -e ""
+        
+        # 简单连通性测试
+        echo -e "${Green}==================== 连通性测试 ====================${Reset}"
+        echo -n " Google:   "
+        curl -sIm3 https://www.google.com &>/dev/null && echo -e "${Green}可访问${Reset}" || echo -e "${Red}不可访问${Reset}"
+        
+        echo -n " YouTube:  "
+        curl -sIm3 https://www.youtube.com &>/dev/null && echo -e "${Green}可访问${Reset}" || echo -e "${Red}不可访问${Reset}"
+        
+        echo -n " ChatGPT:  "
+        curl -sIm3 https://chat.openai.com &>/dev/null && echo -e "${Green}可访问${Reset}" || echo -e "${Red}不可访问${Reset}"
+        
+        echo -n " Netflix:  "
+        local nf=$(curl -sLm5 "https://www.netflix.com/title/81215567" 2>/dev/null)
+        if echo "$nf" | grep -q "NSEZ-403"; then
+            echo -e "${Red}未解锁${Reset}"
+        elif echo "$nf" | grep -qE "page-title|Netflix"; then
+            echo -e "${Green}已解锁${Reset}"
+        else
+            echo -e "${Yellow}检测超时${Reset}"
+        fi
+        echo -e ""
+    fi
+    
+    echo -e "${Green}=================================================${Reset}"
+    echo -e "${Tip} 完整检测请在有 root 权限的 VPS 上运行"
 }
 
 # ==================== Serv00 专用测评 ====================
