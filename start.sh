@@ -427,7 +427,7 @@ run_module() {
                 fi
                 ;;
             17)
-                clean_system
+                bash "$SCRIPT_DIR/utils/system_clean.sh"
                 ;;
             0)
                 echo -e "${Info} 感谢使用 VPS-play!"

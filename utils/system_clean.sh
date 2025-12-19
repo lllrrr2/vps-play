@@ -77,3 +77,8 @@ clean_system() {
 
 # 导出函数
 export -f clean_system
+
+# 如果直接运行脚本
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    clean_system
+fi
