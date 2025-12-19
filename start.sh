@@ -6,23 +6,33 @@
 version="1.0.0"
 
 # ==================== 初始化 ====================
-# 获取脚本目录 - 兼容多种运行方式
-if [ -n "${BASH_SOURCE[0]}" ]; then
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-elif [ -n "$0" ]; then
-    SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-else
-    SCRIPT_DIR="$HOME/vps-play"
+# 获取脚本目录 - 优先使用固定路径
+SCRIPT_DIR=""
+
+# 方法1: 尝试从 BASH_SOURCE 获取
+if [ -z "$SCRIPT_DIR" ] && [ -n "${BASH_SOURCE[0]}" ]; then
+    _dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+    [ -d "$_dir/modules" ] && SCRIPT_DIR="$_dir"
 fi
 
-# 如果目录不存在，尝试常见路径
-if [ ! -d "$SCRIPT_DIR/modules" ]; then
-    if [ -d "$HOME/vps-play/modules" ]; then
-        SCRIPT_DIR="$HOME/vps-play"
-    elif [ -d "/root/vps-play/modules" ]; then
-        SCRIPT_DIR="/root/vps-play"
-    fi
+# 方法2: 尝试从 $0 获取
+if [ -z "$SCRIPT_DIR" ] && [ -n "$0" ] && [ "$0" != "bash" ]; then
+    _dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"
+    [ -d "$_dir/modules" ] && SCRIPT_DIR="$_dir"
 fi
+
+# 方法3: 尝试常见安装路径
+if [ -z "$SCRIPT_DIR" ]; then
+    for _path in "$HOME/vps-play" "/root/vps-play" "/usr/local/vps-play"; do
+        if [ -d "$_path/modules" ]; then
+            SCRIPT_DIR="$_path"
+            break
+        fi
+    done
+fi
+
+# 方法4: 最终回退
+[ -z "$SCRIPT_DIR" ] && SCRIPT_DIR="$HOME/vps-play"
 
 WORK_DIR="$HOME/.vps-play"
 
@@ -310,6 +320,31 @@ show_main_menu() {
     echo -e "${Green}=================================================${Reset}"
 }
 
+# ==================== 运行模块 ====================
+run_module() {
+    local module_name=$1
+    local module_path=$2
+    
+    # 尝试多个可能的路径
+    local paths=(
+        "$SCRIPT_DIR/$module_path"
+        "$HOME/vps-play/$module_path"
+        "/root/vps-play/$module_path"
+    )
+    
+    for path in "${paths[@]}"; do
+        if [ -f "$path" ]; then
+            bash "$path"
+            return 0
+        fi
+    done
+    
+    echo -e "${Error} $module_name 模块未找到"
+    echo -e "${Tip} 请检查安装目录: $SCRIPT_DIR"
+    echo -e "${Tip} 尝试重新安装: curl -sL https://raw.githubusercontent.com/hxzlplp7/vps-play/main/install.sh | bash"
+    return 1
+}
+
 # ==================== 主循环 ====================
     while true; do
         show_main_menu
@@ -318,76 +353,31 @@ show_main_menu() {
         
         case "$choice" in
             1)
-                # sing-box 模块
-                if [ -f "$SCRIPT_DIR/modules/singbox/manager.sh" ]; then
-                    bash "$SCRIPT_DIR/modules/singbox/manager.sh"
-                else
-                    echo -e "${Error} sing-box 模块未找到"
-                fi
+                run_module "sing-box" "modules/singbox/manager.sh"
                 ;;
             2)
-                # GOST 中转模块
-                if [ -f "$SCRIPT_DIR/modules/gost/manager.sh" ]; then
-                    bash "$SCRIPT_DIR/modules/gost/manager.sh"
-                else
-                    echo -e "${Error} GOST 模块未找到"
-                fi
+                run_module "GOST" "modules/gost/manager.sh"
                 ;;
             3)
-                # X-UI 模块
-                if [ -f "$SCRIPT_DIR/modules/xui/manager.sh" ]; then
-                    bash "$SCRIPT_DIR/modules/xui/manager.sh"
-                else
-                    echo -e "${Error} X-UI 模块未找到"
-                fi
+                run_module "X-UI" "modules/xui/manager.sh"
                 ;;
             4)
-                # FRPC 模块
-                if [ -f "$SCRIPT_DIR/modules/frpc/manager.sh" ]; then
-                    bash "$SCRIPT_DIR/modules/frpc/manager.sh"
-                else
-                    echo -e "${Error} FRPC 模块未找到"
-                fi
+                run_module "FRPC" "modules/frpc/manager.sh"
                 ;;
             5)
-                # FRPS 模块
-                if [ -f "$SCRIPT_DIR/modules/frps/manager.sh" ]; then
-                    bash "$SCRIPT_DIR/modules/frps/manager.sh"
-                else
-                    echo -e "${Error} FRPS 模块未找到"
-                fi
+                run_module "FRPS" "modules/frps/manager.sh"
                 ;;
             6)
-                # Cloudflared 模块
-                if [ -f "$SCRIPT_DIR/modules/cloudflared/manager.sh" ]; then
-                    bash "$SCRIPT_DIR/modules/cloudflared/manager.sh"
-                else
-                    echo -e "${Error} Cloudflared 模块未找到"
-                fi
+                run_module "Cloudflared" "modules/cloudflared/manager.sh"
                 ;;
             7)
-                # 哪吒监控模块
-                if [ -f "$SCRIPT_DIR/modules/nezha/manager.sh" ]; then
-                    bash "$SCRIPT_DIR/modules/nezha/manager.sh"
-                else
-                    echo -e "${Error} 哪吒监控模块未找到"
-                fi
+                run_module "哪吒监控" "modules/nezha/manager.sh"
                 ;;
             8)
-                # WARP 模块
-                if [ -f "$SCRIPT_DIR/modules/warp/manager.sh" ]; then
-                    bash "$SCRIPT_DIR/modules/warp/manager.sh"
-                else
-                    echo -e "${Error} WARP 模块未找到"
-                fi
+                run_module "WARP" "modules/warp/manager.sh"
                 ;;
             9)
-                # Docker 模块
-                if [ -f "$SCRIPT_DIR/modules/docker/manager.sh" ]; then
-                    bash "$SCRIPT_DIR/modules/docker/manager.sh"
-                else
-                    echo -e "${Error} Docker 模块未找到"
-                fi
+                run_module "Docker" "modules/docker/manager.sh"
                 ;;
             11)
                 port_manage_menu
