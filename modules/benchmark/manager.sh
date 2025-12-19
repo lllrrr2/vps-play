@@ -40,6 +40,11 @@ detect_bench_env() {
     
     # 检测 root
     [ "$(id -u)" = "0" ] && has_root=true
+    
+    # 如果是 FreeBSD 且非 Root，强制视为 Serv00 模式（受限环境）
+    if [ "$is_freebsd" = true ] && [ "$has_root" = false ]; then
+        is_serv00=true
+    fi
 }
 
 # ==================== 融合怪 (ECS) ====================
