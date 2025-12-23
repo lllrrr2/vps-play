@@ -245,32 +245,39 @@ test_connection() {
     local auth_method=$(echo "$info" | cut -d'|' -f5)
     local auth_data=$(echo "$info" | cut -d'|' -f6)
     
-    echo -e "${Info} 测试连接 ${server_name}..."
-    
-    local ssh_opts="-o StrictHostKeyChecking=no -o ConnectTimeout=10 -o BatchMode=yes"
-    local result=""
+    echo -e "${Info} 测试连接 ${server_name} (${user}@${host}:${port})..."
     
     case "$auth_method" in
         password)
             if command -v sshpass &>/dev/null; then
-                result=$(sshpass -p "$auth_data" ssh $ssh_opts -p "$port" "${user}@${host}" "echo ok" 2>&1)
+                local ssh_opts="-o StrictHostKeyChecking=no -o ConnectTimeout=10 -o BatchMode=yes"
+                local result=$(sshpass -p "$auth_data" ssh $ssh_opts -p "$port" "${user}@${host}" "echo ok" 2>&1)
+                if [ "$result" = "ok" ]; then
+                    echo -e "${Info} ${Green}连接成功${Reset}"
+                    return 0
+                else
+                    echo -e "${Error} ${Red}连接失败${Reset}: $result"
+                    return 1
+                fi
             else
-                echo -e "${Warning} 密码认证需要安装 sshpass"
-                return 1
+                echo -e "${Warning} sshpass 未安装，将使用交互式测试"
+                echo -e "${Tip} 请在提示时输入密码..."
+                ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -p "$port" "${user}@${host}" "echo '连接成功!' && exit"
+                return $?
             fi
             ;;
         key)
-            result=$(ssh $ssh_opts -i "$auth_data" -p "$port" "${user}@${host}" "echo ok" 2>&1)
+            local ssh_opts="-o StrictHostKeyChecking=no -o ConnectTimeout=10 -o BatchMode=yes"
+            local result=$(ssh $ssh_opts -i "$auth_data" -p "$port" "${user}@${host}" "echo ok" 2>&1)
+            if [ "$result" = "ok" ]; then
+                echo -e "${Info} ${Green}连接成功${Reset}"
+                return 0
+            else
+                echo -e "${Error} ${Red}连接失败${Reset}: $result"
+                return 1
+            fi
             ;;
     esac
-    
-    if [ "$result" = "ok" ]; then
-        echo -e "${Info} ${Green}连接成功${Reset}"
-        return 0
-    else
-        echo -e "${Error} ${Red}连接失败${Reset}: $result"
-        return 1
-    fi
 }
 
 # ==================== SSH 隧道 ====================
