@@ -329,26 +329,32 @@ show_main_menu() {
     show_logo
     
     echo -e "${Green}==================== 主菜单 ====================${Reset}"
-    echo -e " ${Green}模块管理${Reset}"
+    echo -e " ${Green}代理节点${Reset}"
     echo -e " ${Green}1.${Reset}  sing-box 节点"
-    echo -e " ${Green}2.${Reset}  GOST 中转"
-    echo -e " ${Green}3.${Reset}  X-UI 面板"
-    echo -e " ${Green}4.${Reset}  FRPC 客户端"
-    echo -e " ${Green}5.${Reset}  FRPS 服务端"
-    echo -e " ${Green}6.${Reset}  Cloudflared 隧道"
-    echo -e " ${Green}7.${Reset}  哪吒监控"
-    echo -e " ${Green}8.${Reset}  WARP 代理"
-    echo -e " ${Green}9.${Reset}  Docker 管理"
-    echo -e " ${Green}10.${Reset} VPS 测评"
+    echo -e " ${Green}2.${Reset}  Argo 节点 ${Cyan}(Cloudflare 隧道)${Reset}"
+    echo -e " ${Green}3.${Reset}  GOST 中转"
+    echo -e " ${Green}4.${Reset}  X-UI 面板"
+    echo -e "${Green}---------------------------------------------------${Reset}"
+    echo -e " ${Green}内网穿透${Reset}"
+    echo -e " ${Green}5.${Reset}  FRPC 客户端"
+    echo -e " ${Green}6.${Reset}  FRPS 服务端"
+    echo -e " ${Green}7.${Reset}  Cloudflared 隧道"
+    echo -e "${Green}---------------------------------------------------${Reset}"
+    echo -e " ${Green}服务器管理${Reset}"
+    echo -e " ${Green}8.${Reset}  跳板服务器 ${Cyan}(SSH 管理)${Reset}"
+    echo -e " ${Green}9.${Reset}  哪吒监控"
+    echo -e " ${Green}10.${Reset} WARP 代理"
+    echo -e " ${Green}11.${Reset} Docker 管理"
+    echo -e " ${Green}12.${Reset} VPS 测评"
     echo -e "${Green}---------------------------------------------------${Reset}"
     echo -e " ${Yellow}系统工具${Reset}"
-    echo -e " ${Green}11.${Reset} 端口管理"
-    echo -e " ${Green}12.${Reset} 进程管理"
-    echo -e " ${Green}13.${Reset} 网络工具"
-    echo -e " ${Green}14.${Reset} 环境检测"
-    echo -e " ${Green}15.${Reset} 保活设置"
-    echo -e " ${Green}16.${Reset} 更新脚本"
-    echo -e " ${Green}17.${Reset} 系统清理"
+    echo -e " ${Green}13.${Reset} 端口管理"
+    echo -e " ${Green}14.${Reset} 进程管理"
+    echo -e " ${Green}15.${Reset} 网络工具"
+    echo -e " ${Green}16.${Reset} 环境检测"
+    echo -e " ${Green}17.${Reset} 保活设置"
+    echo -e " ${Green}18.${Reset} 更新脚本"
+    echo -e " ${Green}19.${Reset} 系统清理"
     echo -e "${Green}---------------------------------------------------${Reset}"
     echo -e " ${Green}0.${Reset}  退出"
     echo -e "${Green}=================================================${Reset}"
@@ -380,45 +386,50 @@ run_module() {
 }
 
 # ==================== 主循环 ====================
+main_loop() {
     while true; do
         show_main_menu
         
-        read -p " 请选择 [0-17]: " choice
+        read -p " 请选择 [0-19]: " choice
         
         case "$choice" in
             1)
                 run_module "sing-box" "modules/singbox/manager.sh"
-            # ... (其他 case) 保持不变，我只替换 case 开始和添加最后的 case
-
                 ;;
             2)
-                run_module "GOST" "modules/gost/manager.sh"
+                run_module "Argo节点" "modules/argo/manager.sh"
                 ;;
             3)
-                run_module "X-UI" "modules/xui/manager.sh"
+                run_module "GOST" "modules/gost/manager.sh"
                 ;;
             4)
-                run_module "FRPC" "modules/frpc/manager.sh"
+                run_module "X-UI" "modules/xui/manager.sh"
                 ;;
             5)
-                run_module "FRPS" "modules/frps/manager.sh"
+                run_module "FRPC" "modules/frpc/manager.sh"
                 ;;
             6)
-                run_module "Cloudflared" "modules/cloudflared/manager.sh"
+                run_module "FRPS" "modules/frps/manager.sh"
                 ;;
             7)
-                run_module "哪吒监控" "modules/nezha/manager.sh"
+                run_module "Cloudflared" "modules/cloudflared/manager.sh"
                 ;;
             8)
-                run_module "WARP" "modules/warp/manager.sh"
+                run_module "跳板服务器" "modules/jumper/manager.sh"
                 ;;
             9)
-                run_module "Docker" "modules/docker/manager.sh"
+                run_module "哪吒监控" "modules/nezha/manager.sh"
                 ;;
             10)
-                run_module "VPS测评" "modules/benchmark/manager.sh"
+                run_module "WARP" "modules/warp/manager.sh"
                 ;;
             11)
+                run_module "Docker" "modules/docker/manager.sh"
+                ;;
+            12)
+                run_module "VPS测评" "modules/benchmark/manager.sh"
+                ;;
+            13)
                 if type port_manage_menu &>/dev/null; then
                     port_manage_menu
                 else
@@ -426,7 +437,7 @@ run_module() {
                     echo -e "${Tip} 请尝试重新安装: curl -sL https://raw.githubusercontent.com/hxzlplp7/vps-play/main/install.sh | bash"
                 fi
                 ;;
-            12)
+            14)
                 # 进程管理
                 if type list_processes &>/dev/null; then
                     echo -e "${Info} 进程管理工具:"
@@ -436,7 +447,7 @@ run_module() {
                     echo -e "${Tip} 可使用: ps aux | grep -E 'gost|sing-box|cloudflared'"
                 fi
                 ;;
-            13)
+            15)
                 # 网络工具
                 if type network_info &>/dev/null; then
                     network_info
@@ -445,7 +456,7 @@ run_module() {
                     echo -e "${Tip} 查看 IP: curl -s ip.sb"
                 fi
                 ;;
-            14)
+            16)
                 if type detect_environment &>/dev/null; then
                     detect_environment
                     show_env_info 2>/dev/null || echo -e "${Info} 环境检测完成"
@@ -453,7 +464,7 @@ run_module() {
                     echo -e "${Warning} 环境检测工具未加载"
                 fi
                 ;;
-            15)
+            17)
                 # 保活系统
                 if [ -f "$SCRIPT_DIR/keepalive/manager.sh" ]; then
                     bash "$SCRIPT_DIR/keepalive/manager.sh"
@@ -461,7 +472,7 @@ run_module() {
                     echo -e "${Error} 保活模块未找到"
                 fi
                 ;;
-            16)
+            18)
                 echo -e "${Info} 更新脚本..."
                 curl -sL https://raw.githubusercontent.com/hxzlplp7/vps-play/main/start.sh -o "$SCRIPT_DIR/start.sh.new"
                 if [ -s "$SCRIPT_DIR/start.sh.new" ]; then
@@ -473,7 +484,7 @@ run_module() {
                     echo -e "${Error} 更新失败"
                 fi
                 ;;
-            17)
+            19)
                 # 系统清理 - 尝试多个可能的路径
                 local clean_script=""
                 for _p in "$SCRIPT_DIR/utils/system_clean.sh" "$HOME/vps-play/utils/system_clean.sh" "/root/vps-play/utils/system_clean.sh"; do

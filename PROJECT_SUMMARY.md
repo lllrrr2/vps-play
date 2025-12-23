@@ -19,15 +19,18 @@ VPS-play 是一个通用的 VPS 管理工具，设计目标是在一个统一的
 每个功能独立成模块，便于维护和扩展：
 ```
 modules/
-├── singbox/    # sing-box 代理节点
+├── singbox/    # sing-box 代理节点 (多协议组合)
+├── argo/       # Argo 节点 (Cloudflare隧道) ★NEW
 ├── gost/       # GOST 流量中转
 ├── xui/        # X-UI 面板
 ├── frpc/       # FRPC 客户端
 ├── frps/       # FRPS 服务端
 ├── cloudflared/# Cloudflare 隧道
+├── jumper/     # 跳板服务器 (SSH管理) ★NEW
 ├── nezha/      # 哪吒监控
 ├── warp/       # WARP 代理
-└── docker/     # Docker 管理
+├── docker/     # Docker 管理
+└── benchmark/  # VPS 测评
 ```
 
 ### 3. 统一工具库
@@ -44,7 +47,8 @@ modules/
 ### 代理节点
 | 模块 | 功能 | Serv00 支持 |
 |------|------|-------------|
-| sing-box | Hysteria2/TUIC/VLESS Reality | ✅ |
+| sing-box | Hysteria2/TUIC/VLESS/多协议组合 | ✅ |
+| Argo节点 | VLESS+WS+Argo/VMess+WS+Argo | ✅ |
 | GOST | TCP/UDP 端口转发 | ✅ |
 | X-UI | 可视化面板 | ❌ |
 
@@ -55,9 +59,10 @@ modules/
 | FRPS | 内网穿透服务端 | ❌ |
 | Cloudflared | Cloudflare Tunnel | ✅ |
 
-### 系统工具
+### 服务器管理
 | 模块 | 功能 | Serv00 支持 |
 |------|------|-------------|
+| 跳板服务器 | SSH远程管理/多跳/端口转发 | ✅ |
 | 哪吒监控 | 服务器监控 Agent | ✅ |
 | WARP | IP 代理 | ❌ |
 | Docker | 容器管理 | ❌ |

@@ -669,6 +669,474 @@ uninstall_singbox() {
     echo -e "${Info} sing-box 已卸载"
 }
 
+# ==================== 多协议组合安装 ====================
+install_combo() {
+    echo -e ""
+    echo -e "${Cyan}========== 自定义多协议组合 ==========${Reset}"
+    echo -e "${Tip} 选择要安装的协议组合，支持同时运行多个协议"
+    echo -e ""
+    
+    # 确保 sing-box 已安装
+    [ ! -f "$SINGBOX_BIN" ] && download_singbox
+    
+    # 协议选择
+    echo -e "${Info} 请选择要启用的协议 (多选，用逗号分隔):"
+    echo -e " ${Green}1.${Reset} Hysteria2"
+    echo -e " ${Green}2.${Reset} TUIC v5"
+    echo -e " ${Green}3.${Reset} VLESS Reality"
+    echo -e " ${Green}4.${Reset} Shadowsocks"
+    echo -e " ${Green}5.${Reset} Trojan"
+    echo -e ""
+    echo -e " ${Cyan}示例: 1,2,3 表示安装 Hysteria2 + TUIC + VLESS Reality${Reset}"
+    echo -e ""
+    
+    read -p "请选择 [1-5]: " combo_choice
+    
+    if [ -z "$combo_choice" ]; then
+        echo -e "${Error} 未选择任何协议"
+        return 1
+    fi
+    
+    # 解析选择
+    IFS=',' read -ra protocols <<< "$combo_choice"
+    
+    local install_hy2=false
+    local install_tuic=false
+    local install_vless=false
+    local install_ss=false
+    local install_trojan=false
+    
+    for p in "${protocols[@]}"; do
+        case "$(echo $p | tr -d ' ')" in
+            1) install_hy2=true ;;
+            2) install_tuic=true ;;
+            3) install_vless=true ;;
+            4) install_ss=true ;;
+            5) install_trojan=true ;;
+        esac
+    done
+    
+    # 配置证书 (Hysteria2, TUIC, Trojan 需要)
+    if [ "$install_hy2" = true ] || [ "$install_tuic" = true ] || [ "$install_trojan" = true ]; then
+        echo -e ""
+        echo -e "${Info} 检测到需要 TLS 证书的协议"
+        cert_menu
+    fi
+    
+    # 生成统一的 UUID 和密码
+    local uuid=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen 2>/dev/null || echo "$(head /dev/urandom | tr -dc a-f0-9 | head -c 8)-$(head /dev/urandom | tr -dc a-f0-9 | head -c 4)-$(head /dev/urandom | tr -dc a-f0-9 | head -c 4)-$(head /dev/urandom | tr -dc a-f0-9 | head -c 4)-$(head /dev/urandom | tr -dc a-f0-9 | head -c 12)")
+    local password=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
+    
+    echo -e ""
+    echo -e "${Info} 统一认证信息:"
+    echo -e " UUID: ${Cyan}${uuid}${Reset}"
+    echo -e " 密码: ${Cyan}${password}${Reset}"
+    echo -e ""
+    
+    # 分配端口
+    local hy2_port=""
+    local tuic_port=""
+    local vless_port=""
+    local ss_port=""
+    local trojan_port=""
+    local base_port=$(shuf -i 10000-50000 -n 1)
+    
+    [ "$install_hy2" = true ] && hy2_port=$((base_port))
+    [ "$install_tuic" = true ] && tuic_port=$((base_port + 1))
+    [ "$install_vless" = true ] && vless_port=$((base_port + 2))
+    [ "$install_ss" = true ] && ss_port=$((base_port + 3))
+    [ "$install_trojan" = true ] && trojan_port=$((base_port + 4))
+    
+    # 构建配置
+    local inbounds=""
+    local server_ip=$(get_ip)
+    local node_info=""
+    local links=""
+    
+    # Hysteria2 配置
+    if [ "$install_hy2" = true ]; then
+        [ -n "$inbounds" ] && inbounds="${inbounds},"
+        inbounds="${inbounds}
+    {
+      \"type\": \"hysteria2\",
+      \"tag\": \"hy2-in\",
+      \"listen\": \"::\",
+      \"listen_port\": ${hy2_port},
+      \"users\": [
+        {
+          \"password\": \"${password}\"
+        }
+      ],
+      \"tls\": {
+        \"enabled\": true,
+        \"alpn\": [\"h3\"],
+        \"certificate_path\": \"${CERT_DIR}/cert.crt\",
+        \"key_path\": \"${CERT_DIR}/private.key\"
+      }
+    }"
+        
+        node_info="${node_info}
+[Hysteria2]
+端口: ${hy2_port}
+密码: ${password}
+SNI: ${CERT_DOMAIN:-www.bing.com}"
+        
+        links="${links}
+hysteria2://${password}@${server_ip}:${hy2_port}?sni=${CERT_DOMAIN:-www.bing.com}&insecure=1#Hy2-${server_ip}"
+    fi
+    
+    # TUIC 配置
+    if [ "$install_tuic" = true ]; then
+        [ -n "$inbounds" ] && inbounds="${inbounds},"
+        inbounds="${inbounds}
+    {
+      \"type\": \"tuic\",
+      \"tag\": \"tuic-in\",
+      \"listen\": \"::\",
+      \"listen_port\": ${tuic_port},
+      \"users\": [
+        {
+          \"uuid\": \"${uuid}\",
+          \"password\": \"${password}\"
+        }
+      ],
+      \"congestion_control\": \"bbr\",
+      \"tls\": {
+        \"enabled\": true,
+        \"alpn\": [\"h3\"],
+        \"certificate_path\": \"${CERT_DIR}/cert.crt\",
+        \"key_path\": \"${CERT_DIR}/private.key\"
+      }
+    }"
+        
+        node_info="${node_info}
+
+[TUIC v5]
+端口: ${tuic_port}
+UUID: ${uuid}
+密码: ${password}
+SNI: ${CERT_DOMAIN:-www.bing.com}"
+        
+        links="${links}
+tuic://${uuid}:${password}@${server_ip}:${tuic_port}?sni=${CERT_DOMAIN:-www.bing.com}&congestion_control=bbr&alpn=h3&udp_relay_mode=native&allow_insecure=1#TUIC-${server_ip}"
+    fi
+    
+    # VLESS Reality 配置
+    if [ "$install_vless" = true ]; then
+        echo -e "${Info} 生成 Reality 密钥..."
+        local keypair=$($SINGBOX_BIN generate reality-keypair 2>/dev/null)
+        local private_key=$(echo "$keypair" | grep -i "privatekey" | awk '{print $2}')
+        local public_key=$(echo "$keypair" | grep -i "publickey" | awk '{print $2}')
+        local short_id=$(head /dev/urandom | tr -dc a-f0-9 | head -c 8)
+        local dest="www.microsoft.com"
+        
+        [ -n "$inbounds" ] && inbounds="${inbounds},"
+        inbounds="${inbounds}
+    {
+      \"type\": \"vless\",
+      \"tag\": \"vless-in\",
+      \"listen\": \"::\",
+      \"listen_port\": ${vless_port},
+      \"users\": [
+        {
+          \"uuid\": \"${uuid}\",
+          \"flow\": \"xtls-rprx-vision\"
+        }
+      ],
+      \"tls\": {
+        \"enabled\": true,
+        \"server_name\": \"${dest}\",
+        \"reality\": {
+          \"enabled\": true,
+          \"handshake\": {
+            \"server\": \"${dest}\",
+            \"server_port\": 443
+          },
+          \"private_key\": \"${private_key}\",
+          \"short_id\": [\"${short_id}\"]
+        }
+      }
+    }"
+        
+        node_info="${node_info}
+
+[VLESS Reality]
+端口: ${vless_port}
+UUID: ${uuid}
+SNI: ${dest}
+公钥: ${public_key}
+Short ID: ${short_id}"
+        
+        links="${links}
+vless://${uuid}@${server_ip}:${vless_port}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${dest}&fp=chrome&pbk=${public_key}&sid=${short_id}&type=tcp#VLESS-Reality-${server_ip}"
+    fi
+    
+    # Shadowsocks 配置
+    if [ "$install_ss" = true ]; then
+        local ss_method="2022-blake3-aes-256-gcm"
+        local ss_password=$(openssl rand -base64 32 2>/dev/null || head /dev/urandom | tr -dc A-Za-z0-9 | head -c 32 | base64)
+        
+        [ -n "$inbounds" ] && inbounds="${inbounds},"
+        inbounds="${inbounds}
+    {
+      \"type\": \"shadowsocks\",
+      \"tag\": \"ss-in\",
+      \"listen\": \"::\",
+      \"listen_port\": ${ss_port},
+      \"method\": \"${ss_method}\",
+      \"password\": \"${ss_password}\"
+    }"
+        
+        node_info="${node_info}
+
+[Shadowsocks]
+端口: ${ss_port}
+加密方式: ${ss_method}
+密码: ${ss_password}"
+        
+        local ss_userinfo=$(echo -n "${ss_method}:${ss_password}" | base64 -w0)
+        links="${links}
+ss://${ss_userinfo}@${server_ip}:${ss_port}#SS-${server_ip}"
+    fi
+    
+    # Trojan 配置
+    if [ "$install_trojan" = true ]; then
+        [ -n "$inbounds" ] && inbounds="${inbounds},"
+        inbounds="${inbounds}
+    {
+      \"type\": \"trojan\",
+      \"tag\": \"trojan-in\",
+      \"listen\": \"::\",
+      \"listen_port\": ${trojan_port},
+      \"users\": [
+        {
+          \"password\": \"${password}\"
+        }
+      ],
+      \"tls\": {
+        \"enabled\": true,
+        \"certificate_path\": \"${CERT_DIR}/cert.crt\",
+        \"key_path\": \"${CERT_DIR}/private.key\"
+      }
+    }"
+        
+        node_info="${node_info}
+
+[Trojan]
+端口: ${trojan_port}
+密码: ${password}
+SNI: ${CERT_DOMAIN:-www.bing.com}"
+        
+        links="${links}
+trojan://${password}@${server_ip}:${trojan_port}?sni=${CERT_DOMAIN:-www.bing.com}&allowInsecure=1#Trojan-${server_ip}"
+    fi
+    
+    # 生成完整配置
+    cat > "$SINGBOX_CONF" << EOF
+{
+  "log": {
+    "level": "info",
+    "timestamp": true
+  },
+  "inbounds": [${inbounds}
+  ],
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ]
+}
+EOF
+    
+    # 保存节点信息
+    local active_protocols=""
+    [ "$install_hy2" = true ] && active_protocols="${active_protocols}Hysteria2 "
+    [ "$install_tuic" = true ] && active_protocols="${active_protocols}TUIC "
+    [ "$install_vless" = true ] && active_protocols="${active_protocols}VLESS "
+    [ "$install_ss" = true ] && active_protocols="${active_protocols}SS "
+    [ "$install_trojan" = true ] && active_protocols="${active_protocols}Trojan "
+    
+    cat > "$SINGBOX_DIR/node_info.txt" << EOF
+============= 多协议组合节点 =============
+服务器: ${server_ip}
+启用协议: ${active_protocols}
+${node_info}
+==========================================
+EOF
+    
+    echo "$links" > "$SINGBOX_DIR/combo_links.txt"
+    
+    echo -e ""
+    echo -e "${Green}========== 多协议组合安装完成 ==========${Reset}"
+    echo -e ""
+    echo -e " 服务器: ${Cyan}${server_ip}${Reset}"
+    echo -e " 启用协议: ${Green}${active_protocols}${Reset}"
+    echo -e ""
+    
+    [ "$install_hy2" = true ] && echo -e " Hysteria2 端口: ${Cyan}${hy2_port}${Reset}"
+    [ "$install_tuic" = true ] && echo -e " TUIC 端口: ${Cyan}${tuic_port}${Reset}"
+    [ "$install_vless" = true ] && echo -e " VLESS 端口: ${Cyan}${vless_port}${Reset}"
+    [ "$install_ss" = true ] && echo -e " SS 端口: ${Cyan}${ss_port}${Reset}"
+    [ "$install_trojan" = true ] && echo -e " Trojan 端口: ${Cyan}${trojan_port}${Reset}"
+    
+    echo -e ""
+    echo -e "${Green}=========================================${Reset}"
+    echo -e ""
+    echo -e "${Info} 分享链接已保存到: ${Cyan}$SINGBOX_DIR/combo_links.txt${Reset}"
+    echo -e ""
+    
+    # 显示链接
+    echo -e "${Yellow}分享链接:${Reset}"
+    echo -e "${links}"
+    echo -e ""
+    
+    # 启动服务
+    read -p "是否立即启动? [Y/n]: " start_now
+    [[ ! $start_now =~ ^[Nn]$ ]] && start_singbox
+}
+
+# 预设组合
+install_preset_combo() {
+    echo -e ""
+    echo -e "${Cyan}========== 预设协议组合 ==========${Reset}"
+    echo -e ""
+    echo -e " ${Green}1.${Reset} 标准组合 (Hysteria2 + TUIC)"
+    echo -e "    ${Cyan}适合: 日常使用，UDP 游戏${Reset}"
+    echo -e ""
+    echo -e " ${Green}2.${Reset} 全能组合 (Hysteria2 + TUIC + VLESS Reality)"
+    echo -e "    ${Cyan}适合: 全场景覆盖${Reset}"
+    echo -e ""
+    echo -e " ${Green}3.${Reset} 免费端口组合 (VLESS Reality + Shadowsocks)"
+    echo -e "    ${Cyan}适合: Serv00/无 UDP 环境${Reset}"
+    echo -e ""
+    echo -e " ${Green}4.${Reset} 完整组合 (全部 5 种协议)"
+    echo -e "    ${Cyan}适合: 测试和特殊需求${Reset}"
+    echo -e ""
+    
+    read -p "请选择预设 [1-4]: " preset_choice
+    
+    case "$preset_choice" in
+        1)
+            echo "1,2" | { read combo_choice; install_combo_internal "1,2"; }
+            ;;
+        2)
+            install_combo_internal "1,2,3"
+            ;;
+        3)
+            install_combo_internal "3,4"
+            ;;
+        4)
+            install_combo_internal "1,2,3,4,5"
+            ;;
+        *)
+            echo -e "${Error} 无效选择"
+            return 1
+            ;;
+    esac
+}
+
+# 内部组合安装函数
+install_combo_internal() {
+    local combo_choice=$1
+    
+    # 确保 sing-box 已安装
+    [ ! -f "$SINGBOX_BIN" ] && download_singbox
+    
+    # 解析选择
+    IFS=',' read -ra protocols <<< "$combo_choice"
+    
+    local install_hy2=false
+    local install_tuic=false
+    local install_vless=false
+    local install_ss=false
+    local install_trojan=false
+    
+    for p in "${protocols[@]}"; do
+        case "$(echo $p | tr -d ' ')" in
+            1) install_hy2=true ;;
+            2) install_tuic=true ;;
+            3) install_vless=true ;;
+            4) install_ss=true ;;
+            5) install_trojan=true ;;
+        esac
+    done
+    
+    # 配置证书
+    if [ "$install_hy2" = true ] || [ "$install_tuic" = true ] || [ "$install_trojan" = true ]; then
+        cert_menu
+    fi
+    
+    # 生成认证信息
+    local uuid=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen 2>/dev/null)
+    local password=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
+    
+    # 分配端口
+    local base_port=$(shuf -i 10000-50000 -n 1)
+    local hy2_port=$((base_port))
+    local tuic_port=$((base_port + 1))
+    local vless_port=$((base_port + 2))
+    local ss_port=$((base_port + 3))
+    local trojan_port=$((base_port + 4))
+    
+    local server_ip=$(get_ip)
+    local inbounds=""
+    local links=""
+    
+    # 构建配置 (简化版，复用上面的逻辑)
+    if [ "$install_hy2" = true ]; then
+        [ -n "$inbounds" ] && inbounds="${inbounds},"
+        inbounds="${inbounds}{\"type\":\"hysteria2\",\"tag\":\"hy2\",\"listen\":\"::\",\"listen_port\":${hy2_port},\"users\":[{\"password\":\"${password}\"}],\"tls\":{\"enabled\":true,\"alpn\":[\"h3\"],\"certificate_path\":\"${CERT_DIR}/cert.crt\",\"key_path\":\"${CERT_DIR}/private.key\"}}"
+        links="${links}\nhysteria2://${password}@${server_ip}:${hy2_port}?sni=${CERT_DOMAIN:-www.bing.com}&insecure=1#Hy2"
+    fi
+    
+    if [ "$install_tuic" = true ]; then
+        [ -n "$inbounds" ] && inbounds="${inbounds},"
+        inbounds="${inbounds}{\"type\":\"tuic\",\"tag\":\"tuic\",\"listen\":\"::\",\"listen_port\":${tuic_port},\"users\":[{\"uuid\":\"${uuid}\",\"password\":\"${password}\"}],\"congestion_control\":\"bbr\",\"tls\":{\"enabled\":true,\"alpn\":[\"h3\"],\"certificate_path\":\"${CERT_DIR}/cert.crt\",\"key_path\":\"${CERT_DIR}/private.key\"}}"
+        links="${links}\ntuic://${uuid}:${password}@${server_ip}:${tuic_port}?sni=${CERT_DOMAIN:-www.bing.com}&congestion_control=bbr&alpn=h3&allow_insecure=1#TUIC"
+    fi
+    
+    if [ "$install_vless" = true ]; then
+        local keypair=$($SINGBOX_BIN generate reality-keypair 2>/dev/null)
+        local private_key=$(echo "$keypair" | grep -i "privatekey" | awk '{print $2}')
+        local public_key=$(echo "$keypair" | grep -i "publickey" | awk '{print $2}')
+        local short_id=$(head /dev/urandom | tr -dc a-f0-9 | head -c 8)
+        
+        [ -n "$inbounds" ] && inbounds="${inbounds},"
+        inbounds="${inbounds}{\"type\":\"vless\",\"tag\":\"vless\",\"listen\":\"::\",\"listen_port\":${vless_port},\"users\":[{\"uuid\":\"${uuid}\",\"flow\":\"xtls-rprx-vision\"}],\"tls\":{\"enabled\":true,\"server_name\":\"www.microsoft.com\",\"reality\":{\"enabled\":true,\"handshake\":{\"server\":\"www.microsoft.com\",\"server_port\":443},\"private_key\":\"${private_key}\",\"short_id\":[\"${short_id}\"]}}}"
+        links="${links}\nvless://${uuid}@${server_ip}:${vless_port}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.microsoft.com&fp=chrome&pbk=${public_key}&sid=${short_id}&type=tcp#VLESS-Reality"
+    fi
+    
+    if [ "$install_ss" = true ]; then
+        local ss_pass=$(openssl rand -base64 32 2>/dev/null)
+        [ -n "$inbounds" ] && inbounds="${inbounds},"
+        inbounds="${inbounds}{\"type\":\"shadowsocks\",\"tag\":\"ss\",\"listen\":\"::\",\"listen_port\":${ss_port},\"method\":\"2022-blake3-aes-256-gcm\",\"password\":\"${ss_pass}\"}"
+        local ss_ui=$(echo -n "2022-blake3-aes-256-gcm:${ss_pass}" | base64 -w0)
+        links="${links}\nss://${ss_ui}@${server_ip}:${ss_port}#SS"
+    fi
+    
+    if [ "$install_trojan" = true ]; then
+        [ -n "$inbounds" ] && inbounds="${inbounds},"
+        inbounds="${inbounds}{\"type\":\"trojan\",\"tag\":\"trojan\",\"listen\":\"::\",\"listen_port\":${trojan_port},\"users\":[{\"password\":\"${password}\"}],\"tls\":{\"enabled\":true,\"certificate_path\":\"${CERT_DIR}/cert.crt\",\"key_path\":\"${CERT_DIR}/private.key\"}}"
+        links="${links}\ntrojan://${password}@${server_ip}:${trojan_port}?sni=${CERT_DOMAIN:-www.bing.com}&allowInsecure=1#Trojan"
+    fi
+    
+    # 生成配置
+    echo "{\"log\":{\"level\":\"info\"},\"inbounds\":[${inbounds}],\"outbounds\":[{\"type\":\"direct\",\"tag\":\"direct\"}]}" | python3 -m json.tool 2>/dev/null > "$SINGBOX_CONF" || echo "{\"log\":{\"level\":\"info\"},\"inbounds\":[${inbounds}],\"outbounds\":[{\"type\":\"direct\",\"tag\":\"direct\"}]}" > "$SINGBOX_CONF"
+    
+    echo -e "$links" > "$SINGBOX_DIR/combo_links.txt"
+    
+    echo -e ""
+    echo -e "${Green}========== 预设组合安装完成 ==========${Reset}"
+    echo -e ""
+    echo -e "${Info} 分享链接:"
+    echo -e "${Yellow}$(echo -e "$links")${Reset}"
+    echo -e ""
+    
+    read -p "是否立即启动? [Y/n]: " start_now
+    [[ ! $start_now =~ ^[Nn]$ ]] && start_singbox
+}
+
 # ==================== 主菜单 ====================
 show_singbox_menu() {
     while true; do
@@ -696,37 +1164,43 @@ EOF
         echo -e ""
         
         echo -e "${Green}==================== sing-box 管理 ====================${Reset}"
-        echo -e " ${Yellow}安装节点${Reset}"
+        echo -e " ${Yellow}单协议安装${Reset}"
         echo -e " ${Green}1.${Reset}  Hysteria2 (推荐)"
         echo -e " ${Green}2.${Reset}  TUIC v5"
         echo -e " ${Green}3.${Reset}  VLESS Reality"
         echo -e "${Green}---------------------------------------------------${Reset}"
-        echo -e " ${Yellow}管理${Reset}"
-        echo -e " ${Green}4.${Reset}  启动"
-        echo -e " ${Green}5.${Reset}  停止"
-        echo -e " ${Green}6.${Reset}  重启"
-        echo -e " ${Green}7.${Reset}  查看状态"
+        echo -e " ${Yellow}多协议组合${Reset}"
+        echo -e " ${Green}4.${Reset}  ${Cyan}自定义组合${Reset} (多选协议)"
+        echo -e " ${Green}5.${Reset}  ${Cyan}预设组合${Reset} (一键安装)"
         echo -e "${Green}---------------------------------------------------${Reset}"
-        echo -e " ${Green}8.${Reset}  查看节点信息"
-        echo -e " ${Green}9.${Reset}  查看配置文件"
-        echo -e " ${Green}10.${Reset} 卸载 sing-box"
+        echo -e " ${Yellow}服务管理${Reset}"
+        echo -e " ${Green}6.${Reset}  启动"
+        echo -e " ${Green}7.${Reset}  停止"
+        echo -e " ${Green}8.${Reset}  重启"
+        echo -e " ${Green}9.${Reset}  查看状态"
+        echo -e "${Green}---------------------------------------------------${Reset}"
+        echo -e " ${Green}10.${Reset} 查看节点信息"
+        echo -e " ${Green}11.${Reset} 查看配置文件"
+        echo -e " ${Green}12.${Reset} 卸载 sing-box"
         echo -e "${Green}---------------------------------------------------${Reset}"
         echo -e " ${Green}0.${Reset}  返回主菜单"
         echo -e "${Green}========================================================${Reset}"
         
-        read -p " 请选择 [0-10]: " choice
+        read -p " 请选择 [0-12]: " choice
         
         case "$choice" in
             1) install_hysteria2 ;;
             2) install_tuic ;;
             3) install_vless_reality ;;
-            4) start_singbox ;;
-            5) stop_singbox ;;
-            6) restart_singbox ;;
-            7) status_singbox ;;
-            8) show_node_info ;;
-            9) [ -f "$SINGBOX_CONF" ] && cat "$SINGBOX_CONF" || echo -e "${Warning} 配置不存在" ;;
-            10) uninstall_singbox ;;
+            4) install_combo ;;
+            5) install_preset_combo ;;
+            6) start_singbox ;;
+            7) stop_singbox ;;
+            8) restart_singbox ;;
+            9) status_singbox ;;
+            10) show_node_info ;;
+            11) [ -f "$SINGBOX_CONF" ] && cat "$SINGBOX_CONF" || echo -e "${Warning} 配置不存在" ;;
+            12) uninstall_singbox ;;
             0) return 0 ;;
             *) echo -e "${Error} 无效选择" ;;
         esac
