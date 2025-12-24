@@ -182,6 +182,9 @@ config_port() {
 download_singbox() {
     echo -e "${Info} 正在下载 sing-box v${SINGBOX_VERSION}..."
     
+    # 确保目录存在
+    mkdir -p "$SINGBOX_DIR" "$CERT_DIR" "$CONFIG_DIR"
+    
     local os_type="linux"
     local arch_type="amd64"
     
@@ -198,7 +201,7 @@ download_singbox() {
     
     local download_url="${SINGBOX_REPO}/releases/download/v${SINGBOX_VERSION}/sing-box-${SINGBOX_VERSION}-${os_type}-${arch_type}.tar.gz"
     
-    cd "$SINGBOX_DIR"
+    cd "$SINGBOX_DIR" || { echo -e "${Error} 无法进入目录"; return 1; }
     
     curl -sL "$download_url" -o sing-box.tar.gz
     tar -xzf sing-box.tar.gz --strip-components=1
