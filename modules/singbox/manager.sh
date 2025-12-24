@@ -733,19 +733,64 @@ install_combo() {
     echo -e " 密码: ${Cyan}${password}${Reset}"
     echo -e ""
     
-    # 分配端口
+    # 端口配置方式
+    echo -e "${Info} 端口配置方式:"
+    echo -e " ${Green}1.${Reset} 自动分配随机端口 (推荐)"
+    echo -e " ${Green}2.${Reset} 手动指定端口"
+    read -p "请选择 [1-2]: " port_mode
+    
     local hy2_port=""
     local tuic_port=""
     local vless_port=""
     local ss_port=""
     local trojan_port=""
-    local base_port=$(shuf -i 10000-50000 -n 1)
     
-    [ "$install_hy2" = true ] && hy2_port=$((base_port))
-    [ "$install_tuic" = true ] && tuic_port=$((base_port + 1))
-    [ "$install_vless" = true ] && vless_port=$((base_port + 2))
-    [ "$install_ss" = true ] && ss_port=$((base_port + 3))
-    [ "$install_trojan" = true ] && trojan_port=$((base_port + 4))
+    if [ "$port_mode" = "2" ]; then
+        # 手动指定端口
+        echo -e ""
+        echo -e "${Info} 请为每个协议指定端口 (留空跳过):"
+        
+        if [ "$install_hy2" = true ]; then
+            read -p "Hysteria2 端口: " hy2_port
+            [ -z "$hy2_port" ] && hy2_port=$(shuf -i 10000-65535 -n 1)
+        fi
+        
+        if [ "$install_tuic" = true ]; then
+            read -p "TUIC 端口: " tuic_port
+            [ -z "$tuic_port" ] && tuic_port=$(shuf -i 10000-65535 -n 1)
+        fi
+        
+        if [ "$install_vless" = true ]; then
+            read -p "VLESS Reality 端口: " vless_port
+            [ -z "$vless_port" ] && vless_port=$(shuf -i 10000-65535 -n 1)
+        fi
+        
+        if [ "$install_ss" = true ]; then
+            read -p "Shadowsocks 端口: " ss_port
+            [ -z "$ss_port" ] && ss_port=$(shuf -i 10000-65535 -n 1)
+        fi
+        
+        if [ "$install_trojan" = true ]; then
+            read -p "Trojan 端口: " trojan_port
+            [ -z "$trojan_port" ] && trojan_port=$(shuf -i 10000-65535 -n 1)
+        fi
+    else
+        # 自动分配
+        local base_port=$(shuf -i 10000-50000 -n 1)
+        [ "$install_hy2" = true ] && hy2_port=$((base_port))
+        [ "$install_tuic" = true ] && tuic_port=$((base_port + 1))
+        [ "$install_vless" = true ] && vless_port=$((base_port + 2))
+        [ "$install_ss" = true ] && ss_port=$((base_port + 3))
+        [ "$install_trojan" = true ] && trojan_port=$((base_port + 4))
+    fi
+    
+    echo -e ""
+    echo -e "${Info} 端口分配:"
+    [ -n "$hy2_port" ] && echo -e " Hysteria2: ${Cyan}${hy2_port}${Reset}"
+    [ -n "$tuic_port" ] && echo -e " TUIC: ${Cyan}${tuic_port}${Reset}"
+    [ -n "$vless_port" ] && echo -e " VLESS: ${Cyan}${vless_port}${Reset}"
+    [ -n "$ss_port" ] && echo -e " SS: ${Cyan}${ss_port}${Reset}"
+    [ -n "$trojan_port" ] && echo -e " Trojan: ${Cyan}${trojan_port}${Reset}"
     
     # 构建配置
     local inbounds=""

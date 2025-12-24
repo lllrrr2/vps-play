@@ -355,6 +355,7 @@ show_main_menu() {
     echo -e " ${Green}17.${Reset} 保活设置"
     echo -e " ${Green}18.${Reset} 更新脚本"
     echo -e " ${Green}19.${Reset} 系统清理"
+    echo -e " ${Red}20.${Reset} ${Red}卸载脚本${Reset}"
     echo -e "${Green}---------------------------------------------------${Reset}"
     echo -e " ${Green}0.${Reset}  退出"
     echo -e "${Green}=================================================${Reset}"
@@ -390,7 +391,7 @@ main_loop() {
     while true; do
         show_main_menu
         
-        read -p " 请选择 [0-19]: " choice
+        read -p " 请选择 [0-20]: " choice
         
         case "$choice" in
             1)
@@ -501,6 +502,24 @@ main_loop() {
                     echo -e "${Tip} 手动清理命令:"
                     echo -e "  apt-get clean && apt-get autoremove -y"
                     echo -e "  rm -rf /tmp/* /var/log/*.gz"
+                fi
+                ;;
+            20)
+                # 卸载脚本
+                local uninstall_script=""
+                for _p in "$SCRIPT_DIR/uninstall.sh" "$HOME/vps-play/uninstall.sh" "/root/vps-play/uninstall.sh"; do
+                    if [ -f "$_p" ]; then
+                        uninstall_script="$_p"
+                        break
+                    fi
+                done
+                
+                if [ -n "$uninstall_script" ]; then
+                    bash "$uninstall_script"
+                else
+                    # 从网络下载卸载脚本
+                    echo -e "${Info} 下载卸载脚本..."
+                    curl -sL https://raw.githubusercontent.com/hxzlplp7/vps-play/main/uninstall.sh | bash
                 fi
                 ;;
             0)
