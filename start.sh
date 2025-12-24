@@ -440,13 +440,68 @@ main_loop() {
                 ;;
             14)
                 # 进程管理
-                if type list_processes &>/dev/null; then
-                    echo -e "${Info} 进程管理工具:"
-                    list_processes
-                else
-                    echo -e "${Warning} 进程管理工具未加载"
-                    echo -e "${Tip} 可使用: ps aux | grep -E 'gost|sing-box|cloudflared'"
+                clear
+                echo -e "${Cyan}==================== 进程管理 ====================${Reset}"
+                echo -e ""
+                echo -e "${Info} VPS-play 相关进程:"
+                echo -e ""
+                
+                # 检查常见进程
+                local found_process=false
+                
+                for proc in "sing-box" "gost" "cloudflared" "xray" "nezha-agent" "frpc" "frps"; do
+                    local pids=$(pgrep -f "$proc" 2>/dev/null)
+                    if [ -n "$pids" ]; then
+                        found_process=true
+                        echo -e " ${Green}●${Reset} ${proc}"
+                        for pid in $pids; do
+                            local cmd=$(ps -p $pid -o args= 2>/dev/null | head -c 60)
+                            echo -e "   └─ PID: ${Cyan}${pid}${Reset} | ${cmd}..."
+                        done
+                    fi
+                done
+                
+                if [ "$found_process" = false ]; then
+                    echo -e " ${Yellow}暂无运行中的 VPS-play 进程${Reset}"
                 fi
+                
+                echo -e ""
+                echo -e "${Green}---------------------------------------------------${Reset}"
+                echo -e " ${Green}1.${Reset} 停止指定进程"
+                echo -e " ${Green}2.${Reset} 停止所有 VPS-play 进程"
+                echo -e " ${Green}3.${Reset} 查看所有进程 (ps aux)"
+                echo -e " ${Green}0.${Reset} 返回"
+                echo -e "${Green}===================================================${Reset}"
+                
+                read -p " 请选择 [0-3]: " proc_choice
+                
+                case "$proc_choice" in
+                    1)
+                        read -p "输入要停止的进程 PID: " kill_pid
+                        if [ -n "$kill_pid" ]; then
+                            kill "$kill_pid" 2>/dev/null && echo -e "${Info} 进程 $kill_pid 已停止" || echo -e "${Error} 停止失败"
+                        fi
+                        ;;
+                    2)
+                        echo -e "${Warning} 即将停止所有 VPS-play 相关进程"
+                        read -p "确定? [y/N]: " confirm
+                        if [[ $confirm =~ ^[Yy]$ ]]; then
+                            pkill -f "sing-box" 2>/dev/null
+                            pkill -f "gost" 2>/dev/null
+                            pkill -f "cloudflared" 2>/dev/null
+                            pkill -f "xray" 2>/dev/null
+                            pkill -f "nezha-agent" 2>/dev/null
+                            pkill -f "frpc" 2>/dev/null
+                            pkill -f "frps" 2>/dev/null
+                            echo -e "${Info} 已停止所有进程"
+                        fi
+                        ;;
+                    3)
+                        echo -e ""
+                        ps aux | head -1
+                        ps aux | grep -E "sing-box|gost|cloudflared|xray|nezha|frp" | grep -v grep
+                        ;;
+                esac
                 ;;
             15)
                 # 网络工具
