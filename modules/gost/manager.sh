@@ -192,6 +192,147 @@ EOF
     echo -e "${Tip} 请重启服务以生效: [5] 重启服务"
 }
 
+# 快速中转 (一键配置多端口)
+quick_forward() {
+    if ! check_gost_installed; then
+        echo -e "${Error} GOST 未安装，请先安装"
+        return
+    fi
+    
+    echo -e ""
+    echo -e "${Cyan}========== 快速中转配置 ==========${Reset}"
+    echo -e "${Tip} 快速配置落地机中转，支持批量端口"
+    echo -e ""
+    
+    # 落地机IP
+    read -p "落地机 IP: " target_ip
+    if [ -z "$target_ip" ]; then
+        echo -e "${Error} IP 不能为空"
+        return
+    fi
+    
+    echo -e ""
+    echo -e "${Info} 端口配置方式:"
+    echo -e " ${Green}1.${Reset} 单端口转发 (中转和落地使用相同端口)"
+    echo -e " ${Green}2.${Reset} 端口范围转发 (如 10000-10010)"
+    echo -e " ${Green}3.${Reset} 多端口列表 (如 443,8443,10000)"
+    echo -e " ${Green}4.${Reset} 端口映射 (本地:远程，如 10000:443)"
+    echo -e ""
+    
+    read -p "选择 [1-4]: " port_mode
+    
+    local ports_to_add=()
+    local mappings=()
+    
+    case "$port_mode" in
+        1)
+            read -p "输入端口号: " single_port
+            if [ -n "$single_port" ]; then
+                ports_to_add+=("$single_port:$single_port")
+            fi
+            ;;
+        2)
+            read -p "起始端口: " start_port
+            read -p "结束端口: " end_port
+            if [ -n "$start_port" ] && [ -n "$end_port" ]; then
+                for ((p=start_port; p<=end_port; p++)); do
+                    ports_to_add+=("$p:$p")
+                done
+            fi
+            ;;
+        3)
+            read -p "输入端口列表 (逗号分隔): " port_list
+            IFS=',' read -ra raw_ports <<< "$port_list"
+            for p in "${raw_ports[@]}"; do
+                p=$(echo "$p" | tr -d ' ')
+                [ -n "$p" ] && ports_to_add+=("$p:$p")
+            done
+            ;;
+        4)
+            echo -e "${Tip} 格式: 本地端口:远程端口 (多个用逗号分隔)"
+            read -p "输入映射: " mapping_list
+            IFS=',' read -ra raw_mappings <<< "$mapping_list"
+            for m in "${raw_mappings[@]}"; do
+                m=$(echo "$m" | tr -d ' ')
+                [ -n "$m" ] && ports_to_add+=("$m")
+            done
+            ;;
+        *)
+            echo -e "${Error} 无效选择"
+            return
+            ;;
+    esac
+    
+    if [ ${#ports_to_add[@]} -eq 0 ]; then
+        echo -e "${Error} 未配置任何端口"
+        return
+    fi
+    
+    echo -e ""
+    echo -e "${Info} 即将配置 ${#ports_to_add[@]} 条转发规则:"
+    echo -e " 目标: ${Cyan}${target_ip}${Reset}"
+    
+    for mapping in "${ports_to_add[@]}"; do
+        local local_port=$(echo "$mapping" | cut -d':' -f1)
+        local remote_port=$(echo "$mapping" | cut -d':' -f2)
+        echo -e " ${local_port} -> ${target_ip}:${remote_port}"
+    done
+    
+    echo -e ""
+    read -p "确认配置? [Y/n]: " confirm
+    [[ $confirm =~ ^[Nn]$ ]] && return
+    
+    # 清空旧配置
+    echo "services:" > "$GOST_CONF"
+    
+    # 添加配置
+    for mapping in "${ports_to_add[@]}"; do
+        local local_port=$(echo "$mapping" | cut -d':' -f1)
+        local remote_port=$(echo "$mapping" | cut -d':' -f2)
+        
+        # 开放端口
+        open_port "$local_port" "tcp" 2>/dev/null
+        open_port "$local_port" "udp" 2>/dev/null
+        
+        # TCP 转发
+        cat >> "$GOST_CONF" <<EOF
+- name: tcp-${local_port}
+  addr: :${local_port}
+  handler:
+    type: tcp
+  listener:
+    type: tcp
+  forwarder:
+    nodes:
+    - name: target-${local_port}
+      addr: ${target_ip}:${remote_port}
+EOF
+        
+        # UDP 转发
+        cat >> "$GOST_CONF" <<EOF
+- name: udp-${local_port}
+  addr: :${local_port}
+  handler:
+    type: udp
+  listener:
+    type: udp
+  forwarder:
+    nodes:
+    - name: target-${local_port}
+      addr: ${target_ip}:${remote_port}
+EOF
+    done
+    
+    echo -e ""
+    echo -e "${Info} 配置完成，共 ${#ports_to_add[@]} 条规则"
+    
+    # 自动重启
+    read -p "是否立即启动/重启 GOST? [Y/n]: " auto_restart
+    if [[ ! $auto_restart =~ ^[Nn]$ ]]; then
+        restart_gost
+    fi
+}
+
 view_config() {
     if [ -f "$GOST_CONF" ]; then
         echo -e "${Green}配置文件内容 ($GOST_CONF):${Reset}"
@@ -204,7 +345,7 @@ view_config() {
 clear_config() {
     read -p "确定清空所有配置吗? [y/N] " confirm
     if [[ "$confirm" =~ ^[Yy] ]]; then
-        echo "services: []" > "$GOST_CONF"
+        echo "services:" > "$GOST_CONF"
         echo -e "${Info} 配置已清空，请重启服务"
     fi
 }
@@ -237,14 +378,15 @@ EOF
         echo -e "${Green}5.${Reset} 重启服务"
         echo -e "${Green}6.${Reset} 查看日志"
         echo -e "${Green}--------------------${Reset}"
-        echo -e "${Green}7.${Reset} 添加转发 (Port -> IP:Port)"
-        echo -e "${Green}8.${Reset} 查看配置"
-        echo -e "${Green}9.${Reset} 清空配置"
+        echo -e "${Yellow}7.${Reset} ${Yellow}快速中转${Reset} ${Cyan}(推荐)${Reset}"
+        echo -e "${Green}8.${Reset} 添加单条转发"
+        echo -e "${Green}9.${Reset} 查看配置"
+        echo -e "${Green}10.${Reset} 清空配置"
         echo -e "${Green}--------------------${Reset}"
         echo -e "${Green}0.${Reset} 返回主菜单"
         echo -e ""
         
-        read -p " 请选择 [0-9]: " choice
+        read -p " 请选择 [0-10]: " choice
         
         case "$choice" in
             1) install_gost ;;
@@ -260,9 +402,10 @@ EOF
                     echo -e "${Warning} 暂无日志"
                 fi
                 ;;
-            7) add_forward ;;
-            8) view_config ;;
-            9) clear_config ;;
+            7) quick_forward ;;
+            8) add_forward ;;
+            9) view_config ;;
+            10) clear_config ;;
             0) return 0 ;;
             *) echo -e "${Error} 无效选择" ;;
         esac
