@@ -317,7 +317,8 @@ quick_forward() {
         read -p "    本地端口 [默认 $node_port]: " local_port
         local_port=${local_port:-$node_port}
         
-        configs+=("$local_port|$node_ip|$node_port|$node_name")
+        # 保存配置: 本地端口|目标IP|目标端口|名称|原始节点
+        configs+=("$local_port|$node_ip|$node_port|$node_name|$node")
         echo -e "    ${Green}✓${Reset} 配置: 本地 $local_port -> ${node_ip}:${node_port}"
         echo -e ""
         
@@ -334,14 +335,24 @@ quick_forward() {
     read -p "确认写入配置? [Y/n]: " confirm
     [[ $confirm =~ ^[Nn]$ ]] && return
     
+    # 获取中转机IP
+    local relay_ip=$(curl -s4 ip.sb 2>/dev/null || curl -s4 ifconfig.me 2>/dev/null || curl -s4 api.ipify.org 2>/dev/null)
+    if [ -z "$relay_ip" ]; then
+        read -p "无法获取中转机IP，请手动输入: " relay_ip
+    fi
+    
     # 清空旧配置并写入新配置
     echo "services:" > "$GOST_CONF"
+    
+    # 存储中转后的节点
+    local new_nodes=()
     
     for cfg in "${configs[@]}"; do
         local local_port=$(echo "$cfg" | cut -d'|' -f1)
         local target_ip=$(echo "$cfg" | cut -d'|' -f2)
         local target_port=$(echo "$cfg" | cut -d'|' -f3)
         local name=$(echo "$cfg" | cut -d'|' -f4)
+        local original_node=$(echo "$cfg" | cut -d'|' -f5-)
         
         # 开放端口
         open_port "$local_port" "tcp" 2>/dev/null
@@ -374,6 +385,22 @@ EOF
     - name: target-${local_port}
       addr: ${target_ip}:${target_port}
 EOF
+        
+        # 生成中转后的节点 (替换IP和端口)
+        local new_node="$original_node"
+        # 替换 IP:PORT 为中转机IP:本地端口
+        new_node=$(echo "$new_node" | sed "s/${target_ip}:${target_port}/${relay_ip}:${local_port}/g")
+        # 处理可能只有IP的情况
+        new_node=$(echo "$new_node" | sed "s/@${target_ip}:/@${relay_ip}:/g")
+        
+        # 修改节点名称添加中转标识
+        if [[ "$new_node" == *"#"* ]]; then
+            new_node=$(echo "$new_node" | sed "s/#.*/&[中转]/")
+        else
+            new_node="${new_node}#${name}[中转]"
+        fi
+        
+        new_nodes+=("$new_node")
     done
     
     echo -e ""
@@ -384,6 +411,24 @@ EOF
     if [[ ! $auto_restart =~ ^[Nn]$ ]]; then
         restart_gost
     fi
+    
+    # 输出中转后的节点
+    echo -e ""
+    echo -e "${Cyan}==================== 中转后的节点链接 ====================${Reset}"
+    echo -e "${Tip} 中转机 IP: ${Yellow}${relay_ip}${Reset}"
+    echo -e ""
+    
+    for new_node in "${new_nodes[@]}"; do
+        echo -e "${Green}${new_node}${Reset}"
+        echo -e ""
+    done
+    
+    # 保存到文件
+    local save_file="$GOST_DIR/relay_nodes.txt"
+    printf '%s\n' "${new_nodes[@]}" > "$save_file"
+    echo -e "${Cyan}======================================================${Reset}"
+    echo -e ""
+    echo -e "${Info} 中转节点已保存到: ${Cyan}${save_file}${Reset}"
 }
 
 view_config() {
