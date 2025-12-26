@@ -580,8 +580,8 @@ install_any_reality() {
     
     # 4. Reality 配置
     echo -e ""
-    read -p "目标网站 (dest) [apple.com]: " dest
-    dest=${dest:-apple.com}
+    read -p "目标网站 (dest) [www.apple.com]: " dest
+    dest=${dest:-www.apple.com}
     
     read -p "Server Name [${dest}]: " server_name
     server_name=${server_name:-$dest}
