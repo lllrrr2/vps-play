@@ -397,11 +397,7 @@ install_anytls() {
     [ -z "$password" ] && password=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
     echo -e "${Info} 密码: ${Cyan}$password${Reset}"
     
-    # 4. 配置伪装域名 (Handshake)
-    read -p "设置伪装域名 (默认 www.bing.com): " handshake
-    [ -z "$handshake" ] && handshake="www.bing.com"
-    
-    # 5. 为了演示，不仅配置 AnyTLS 入站，还需要一个内部被转发的入站 (Detour)
+    # 4. 配置内部转发端口
     local internal_port=$(shuf -i 20000-60000 -n 1)
     
     # 6. 生成配置文件
@@ -422,10 +418,6 @@ install_anytls() {
            "password": "$password"
         }
       ],
-      "handshake": {
-          "server": "$handshake",
-          "server_port": 443
-      },
       "detour": "mixed-in"
     },
     {
@@ -451,7 +443,6 @@ EOF
 地址: $server_ip
 端口: $port
 密码: $password
-SNI(伪装): $handshake
 说明: 客户端需要安装支持 AnyTLS 的 sing-box (v1.12.0+)
 
 OUTBOUND配置示例:
@@ -460,30 +451,16 @@ OUTBOUND配置示例:
   "tag": "anytls-out",
   "server": "$server_ip",
   "server_port": $port,
-  "password": "$password",
-  "tls": {
-      "enabled": true,
-      "server_name": "$handshake",
-      "utls": {"enabled": true, "fingerprint": "chrome"}
-  }
+  "password": "$password"
 }
 EOF
 
 
     # 生成分享链接 (sing-box 格式)
     # 构造 Outbound JSON
-    local out_json="{\"type\":\"anytls\",\"tag\":\"anytls-out\",\"server\":\"$server_ip\",\"server_port\":$port,\"password\":\"$password\",\"tls\":{\"enabled\":true,\"server_name\":\"$handshake\",\"utls\":{\"enabled\":true,\"fingerprint\":\"chrome\"}}}"
+    local out_json="{\"type\":\"anytls\",\"tag\":\"anytls-out\",\"server\":\"$server_ip\",\"server_port\":$port,\"password\":\"$password\"}"
     
-    # 尝试生成 iOS/Android 客户端可能识别的 base64 链接
-    # 注意：标准不统一，这里仅作尝试
-    local b64_config=$(echo -n "$out_json" | base64 -w0)
-    # 一种常见的格式：sing-box://<profile-json>
-    # 或者把整个配置包在一个 outbounds 数组里？暂时只提供单节点 JSON
-    local share_link="sing-box://import-remote-profile?url=${out_json}" 
-    # 上面这个显然不行，我们需要 text导入。
-    # 换一种：直接把 JSON base64 作为片段？
-    # 还是给出一个说明链接吧，或者直接把 JSON 作为 "链接"
-    # 为了用户方便复制，我们把 JSON 压缩成一行
+    # 保存到文件
     echo "$out_json" > "$SINGBOX_DIR/anytls_link.txt"
 
     echo -e ""
@@ -491,7 +468,6 @@ EOF
     echo -e " 地址: ${Cyan}${server_ip}${Reset}"
     echo -e " 端口: ${Cyan}${port}${Reset}"
     echo -e " 密码: ${Cyan}${password}${Reset}"
-    echo -e " SNI:  ${Cyan}${handshake}${Reset}"
     echo -e ""
     echo -e " 分享配置(JSON行):"
     echo -e " ${Yellow}${out_json}${Reset}"
@@ -1202,7 +1178,6 @@ trojan://${password}@${server_ip}:${trojan_port}?sni=${CERT_DOMAIN:-www.bing.com
     fi
     # AnyTLS 配置
     if [ "$install_anytls" = true ]; then
-        local handshake="www.bing.com"
         local anytls_mixed_port=$(shuf -i 20000-60000 -n 1)
         [ -n "$inbounds" ] && inbounds="${inbounds},"
         # 注意: JSON 中引用变量需要小心转义
@@ -1213,7 +1188,6 @@ trojan://${password}@${server_ip}:${trojan_port}?sni=${CERT_DOMAIN:-www.bing.com
       \"listen\": \"::\",
       \"listen_port\": ${anytls_port},
       \"users\": [{\"password\": \"${password}\"}],
-      \"handshake\": {\"server\": \"${handshake}\", \"server_port\": 443},
       \"detour\": \"mixed-in-anytls\"
     },
     {
@@ -1221,17 +1195,16 @@ trojan://${password}@${server_ip}:${trojan_port}?sni=${CERT_DOMAIN:-www.bing.com
       \"tag\": \"mixed-in-anytls\",
       \"listen\": \"127.0.0.1\",
       \"listen_port\": ${anytls_mixed_port}
-    }"
+    }}"
     
     node_info="${node_info}
 [AnyTLS]
 端口: ${anytls_port}
 密码: ${password}
-SNI: ${handshake}
 说明: 需 sing-box 1.12.0+ 客户端"
 
     # 生成简化版 Outbound JSON 供复制
-    local out_json="{\"type\":\"anytls\",\"tag\":\"anytls-out\",\"server\":\"$server_ip\",\"server_port\":$anytls_port,\"password\":\"$password\",\"tls\":{\"enabled\":true,\"server_name\":\"$handshake\",\"utls\":{\"enabled\":true,\"fingerprint\":\"chrome\"}}}"
+    local out_json="{\"type\":\"anytls\",\"tag\":\"anytls-out\",\"server\":\"$server_ip\",\"server_port\":$anytls_port,\"password\":\"$password\"}"
     links="${links}
 AnyTLS配置(JSON):
 ${out_json}"
