@@ -170,7 +170,8 @@ config_port() {
     local proto_name=$1
     local default_port=$2
     
-    echo -e ""
+    echo -e "" >&2
+    # read -p 输出默认就是 stderr，所以不用改
     read -p "设置 $proto_name 端口 [留空随机]: " port
     
     if [ -z "$port" ]; then
@@ -179,12 +180,12 @@ config_port() {
     
     # 检查端口是否被占用
     while ss -tunlp 2>/dev/null | grep -qw ":$port "; do
-        echo -e "${Warning} 端口 $port 已被占用"
+        echo -e "${Warning} 端口 $port 已被占用" >&2
         port=$(shuf -i 10000-65535 -n 1)
-        echo -e "${Info} 自动分配新端口: $port"
+        echo -e "${Info} 自动分配新端口: $port" >&2
     done
     
-    echo -e "${Info} 使用端口: ${Cyan}$port${Reset}"
+    echo -e "${Info} 使用端口: ${Cyan}$port${Reset}" >&2
     echo "$port"
 }
 
@@ -460,12 +461,32 @@ OUTBOUND配置示例:
 }
 EOF
 
+
+    # 生成分享链接 (sing-box 格式)
+    # 构造 Outbound JSON
+    local out_json="{\"type\":\"anytls\",\"tag\":\"anytls-out\",\"server\":\"$server_ip\",\"server_port\":$port,\"password\":\"$password\",\"tls\":{\"enabled\":true,\"server_name\":\"$handshake\",\"utls\":{\"enabled\":true,\"fingerprint\":\"chrome\"}}}"
+    
+    # 尝试生成 iOS/Android 客户端可能识别的 base64 链接
+    # 注意：标准不统一，这里仅作尝试
+    local b64_config=$(echo -n "$out_json" | base64 -w0)
+    # 一种常见的格式：sing-box://<profile-json>
+    # 或者把整个配置包在一个 outbounds 数组里？暂时只提供单节点 JSON
+    local share_link="sing-box://import-remote-profile?url=${out_json}" 
+    # 上面这个显然不行，我们需要 text导入。
+    # 换一种：直接把 JSON base64 作为片段？
+    # 还是给出一个说明链接吧，或者直接把 JSON 作为 "链接"
+    # 为了用户方便复制，我们把 JSON 压缩成一行
+    echo "$out_json" > "$SINGBOX_DIR/anytls_link.txt"
+
     echo -e ""
     echo -e "${Green}========== AnyTLS 安装完成 ==========${Reset}"
     echo -e " 地址: ${Cyan}${server_ip}${Reset}"
     echo -e " 端口: ${Cyan}${port}${Reset}"
     echo -e " 密码: ${Cyan}${password}${Reset}"
     echo -e " SNI:  ${Cyan}${handshake}${Reset}"
+    echo -e ""
+    echo -e " 分享配置(JSON行):"
+    echo -e " ${Yellow}${out_json}${Reset}"
     echo -e ""
     echo -e " ${Yellow}请查看 node_info.txt 获取完整配置${Reset}"
     echo -e "${Green}========================================${Reset}"
