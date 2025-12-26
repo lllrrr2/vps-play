@@ -450,6 +450,90 @@ stop_api_server() {
     fi
 }
 
+# 配置开机自启
+setup_autostart() {
+    local port=$(cat "$STATS_DIR/api_port" 2>/dev/null || echo "30000")
+    
+    echo -e ""
+    echo -e "${Cyan}========== 配置开机自启 ==========${Reset}"
+    
+    # 检查是否有 systemd
+    if command -v systemctl &>/dev/null && [ -d /etc/systemd/system ]; then
+        echo -e "${Info} 检测到 systemd，配置系统服务..."
+        
+        cat > /etc/systemd/system/vps-stats-api.service << EOF
+[Unit]
+Description=VPS-play Traffic Stats API
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=$STATS_DIR/api_server.py $port
+Restart=always
+RestartSec=5
+User=root
+WorkingDirectory=$STATS_DIR
+
+[Install]
+WantedBy=multi-user.target
+EOF
+        
+        systemctl daemon-reload
+        systemctl enable vps-stats-api
+        systemctl start vps-stats-api
+        
+        echo -e "${Info} systemd 服务已配置并启动"
+        echo -e "${Tip} 管理命令: systemctl {start|stop|status} vps-stats-api"
+    else
+        # 使用 cron @reboot
+        echo -e "${Info} 使用 cron 配置开机自启..."
+        
+        local startup_script="$STATS_DIR/startup.sh"
+        cat > "$startup_script" << EOF
+#!/bin/bash
+# VPS-play Stats API 自启动脚本
+sleep 10
+cd "$STATS_DIR"
+nohup bash "$HOME/vps-play/modules/stats/manager.sh" start "$port" > /dev/null 2>&1 &
+EOF
+        chmod +x "$startup_script"
+        
+        # 添加到 cron
+        (crontab -l 2>/dev/null | grep -v "vps-stats-api"; echo "@reboot $startup_script") | crontab -
+        
+        echo -e "${Info} cron 开机自启已配置"
+        echo -e "${Tip} 查看: crontab -l"
+    fi
+    
+    echo -e ""
+}
+
+# 移除开机自启
+remove_autostart() {
+    echo -e "${Info} 移除开机自启配置..."
+    
+    # 移除 systemd 服务
+    if [ -f /etc/systemd/system/vps-stats-api.service ]; then
+        systemctl stop vps-stats-api 2>/dev/null
+        systemctl disable vps-stats-api 2>/dev/null
+        rm -f /etc/systemd/system/vps-stats-api.service
+        systemctl daemon-reload
+        echo -e "${Info} systemd 服务已移除"
+    fi
+    
+    # 移除 cron
+    crontab -l 2>/dev/null | grep -v "vps-stats-api" | crontab -
+    rm -f "$STATS_DIR/startup.sh"
+    
+    echo -e "${Info} 开机自启已移除"
+}
+
+# 直接启动 API (用于命令行参数)
+direct_start_api() {
+    local port=$1
+    start_api_server "$port"
+}
+
 # ==================== 配置流量配额 ====================
 configure_quota() {
     echo -e ""
@@ -566,11 +650,13 @@ EOF
         echo -e " ${Green}3.${Reset}  启动 API 服务"
         echo -e " ${Green}4.${Reset}  停止 API 服务"
         echo -e " ${Green}5.${Reset}  获取 API 地址"
+        echo -e " ${Green}6.${Reset}  配置开机自启"
+        echo -e " ${Green}7.${Reset}  移除开机自启"
         echo -e "${Green}---------------------------------------------------${Reset}"
         echo -e " ${Green}0.${Reset}  返回"
         echo -e "${Green}===================================================${Reset}"
         
-        read -p " 请选择 [0-5]: " choice
+        read -p " 请选择 [0-7]: " choice
         
         case "$choice" in
             1) show_traffic ;;
@@ -595,6 +681,8 @@ EOF
                     echo -e "${Warning} API 服务未启动"
                 fi
                 ;;
+            6) setup_autostart ;;
+            7) remove_autostart ;;
             0) return 0 ;;
             *) echo -e "${Error} 无效选择" ;;
         esac
