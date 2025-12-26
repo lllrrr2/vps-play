@@ -324,14 +324,26 @@ UPDATER_PID=\$!
 
 # 启动 HTTP 服务循环 (前台阻塞)
 while true; do
-    if command -v python3 &>/dev/null; then
+    if command -v busybox &>/dev/null; then
+        # Busybox httpd 是最轻量的选择
+        busybox httpd -f -p $port -h "\$STATS_DIR" > /dev/null 2>&1
+    elif command -v socat &>/dev/null; then
+        # Socat 极其稳定，适合模拟简单的 HTTP 响应
+        socat TCP-LISTEN:$port,reuseaddr,fork SYSTEM:"echo -e 'HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nAccess-Control-Allow-Origin: *\r\n\r\n'; cat stats" 2>/dev/null
+    elif command -v python3 &>/dev/null; then
         python3 -m http.server $port > /dev/null 2>&1
     elif command -v python &>/dev/null; then
         python -m http.server $port > /dev/null 2>&1
-    elif command -v busybox &>/dev/null; then
-        busybox httpd -f -p $port -h "\$STATS_DIR" > /dev/null 2>&1
     else
-        echo -e "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n\r\n" | cat - stats | nc -l -p $port -q 1
+        # 最后的兜底：用 nc 模拟一个极简的文件服务器
+        # 注意：不同的 nc 版本参数可能不同，这里尝试最通用的写法
+        if echo -e "HTTP/1.1 200 OK\r\n\r\n" | nc -l -p $port -q 1 >/dev/null 2>&1; then
+             # 如果支持 -q 1
+             echo -e "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nAccess-Control-Allow-Origin: *\r\n\r\n" | cat - stats | nc -l -p $port -q 1
+        else
+             # 传统的 nc
+             echo -e "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nAccess-Control-Allow-Origin: *\r\n\r\n" | cat - stats | nc -l -p $port
+        fi
     fi
     sleep 2
 done
