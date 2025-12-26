@@ -554,34 +554,35 @@ function parseAnyTLSLink(link) {
 	}
 }
 
-// 将 AnyTLS 节点转换为 Clash YAML 格式（多行 Block 格式，改进版）
+// 将 AnyTLS 节点转换为 Clash YAML 格式（单行 Flow 格式）
 function anyTLSToClashYAML(node) {
-	// 使用多行Block格式，Clash Meta 需要这种格式才能识别
-	let yaml = `  - name: "${node.remark}"
-    type: anytls
-    server: ${node.server}
-    port: ${node.port}
-    password: "${node.password}"
-    skip-cert-verify: ${node.skipCertVerify}
-    sni: "${node.sni}"
-    client-fingerprint: ${node.fingerprint}
-    udp: true`;
+	// 使用单行 Flow 格式（花括号），与 Clash Meta 标准一致
+	// 参考: { name: 节点名, type: anytls, server: 1.2.3.4, port: 443, ... }
 
-	// 添加 ALPN（Clash Meta 支持）
-	yaml += `\n    alpn:
-      - h2
-      - http/1.1`;
+	// 构建配置项数组
+	const parts = [
+		`name: ${node.remark}`,
+		`type: anytls`,
+		`server: ${node.server}`,
+		`port: ${node.port}`,
+		`password: ${node.password}`,
+		`'client-fingerprint': ${node.fingerprint}`,
+		`udp: true`,
+		`alpn: [h2, http/1.1]`,
+		`sni: ${node.sni}`,
+		`'skip-cert-verify': ${node.skipCertVerify}`
+	];
 
-	// 如果是 Any-Reality（AnyTLS + Reality）
+	// 如果是 Any-Reality，添加 reality-opts
 	if (node.security === 'reality' && node.publicKey) {
-		yaml += `\n    reality-opts:
-      public-key: ${node.publicKey}`;
+		let realityParts = [`'public-key': ${node.publicKey}`];
 		if (node.shortId) {
-			yaml += `\n      short-id: ${node.shortId}`;
+			realityParts.push(`'short-id': ${node.shortId}`);
 		}
+		parts.push(`'reality-opts': { ${realityParts.join(', ')} }`);
 	}
 
-	return yaml;
+	return `    - { ${parts.join(', ')} }`;
 }
 
 function clashFix(content) {
