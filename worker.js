@@ -508,7 +508,8 @@ function parseAnyTLSLink(link) {
 
 // 将 AnyTLS 节点转换为 Clash YAML 格式（单行 Flow 格式）
 function anyTLSToClashYAML(node) {
-	return `  - {name: ${node.remark}, type: anytls, server: ${node.server}, port: ${node.port}, password: "${node.password}", client-fingerprint: chrome, udp: true, idle-session-check-interval: 30, idle-session-timeout: 30, min-idle-session: 0, skip-cert-verify: true}`;
+	// 添加 sni 和 alpn 字段以确保 Clash Meta 能正确识别
+	return `  - {name: ${node.remark}, type: anytls, server: ${node.server}, port: ${node.port}, password: "${node.password}", sni: ${node.server}, alpn: [h2, http/1.1], client-fingerprint: chrome, udp: true, idle-session-check-interval: 30, idle-session-timeout: 30, min-idle-session: 0, skip-cert-verify: true}`;
 }
 
 function clashFix(content) {
