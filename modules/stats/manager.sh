@@ -299,39 +299,43 @@ start_api_server() {
     echo -e "${Info} 启动流量统计 API 服务..."
     echo -e " 端口: ${Cyan}$port${Reset}"
     
-    # 按优先级尝试不同的 HTTP 服务器
+    # 生成启动脚本
+    local runner_script="$STATS_DIR/api_runner.sh"
+    cat > "$runner_script" << EOF
+#!/bin/bash
+STATS_DIR="$STATS_DIR"
+PORT=$port
+MANAGER_SCRIPT="$0"
+
+# 加载函数
+source "\$MANAGER_SCRIPT"
+
+# 循环运行服务
+while true; do
     if command -v python3 &>/dev/null; then
-        start_python_server "$port" &
+        "$STATS_DIR/api_server.py" "\$PORT"
     elif command -v python &>/dev/null; then
-        start_python_server "$port" &
+        python "$STATS_DIR/api_server.py" "\$PORT"
     elif command -v socat &>/dev/null; then
-        start_socat_server "$port" &
-    elif command -v nc &>/dev/null; then
-        start_nc_server "$port" &
+        socat TCP-LISTEN:\$PORT,reuseaddr,fork SYSTEM:"\$MANAGER_SCRIPT handle_request" 2>/dev/null
     elif command -v ncat &>/dev/null; then
-        start_ncat_server "$port" &
-    else
-        echo -e "${Warning} 没有找到可用的 HTTP 服务器工具，尝试自动安装..."
-        
-        # 尝试安装 netcat
-        if install_http_tool; then
-            # 安装成功后重试
-            if command -v nc &>/dev/null; then
-                start_nc_server "$port" &
-            elif command -v ncat &>/dev/null; then
-                start_ncat_server "$port" &
-            elif command -v socat &>/dev/null; then
-                start_socat_server "$port" &
-            else
-                echo -e "${Error} 安装后仍无法找到可用工具"
-                return 1
-            fi
-        else
-            echo -e "${Error} 自动安装失败"
-            echo -e "${Tip} 请手动安装: apt install netcat-openbsd 或 yum install nmap-ncat"
-            return 1
-        fi
+        echo -e "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n\r\n\$(bash \$MANAGER_SCRIPT get)" | ncat -l -p \$PORT 2>/dev/null
+    elif command -v nc &>/dev/null; then
+        echo -e "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n\r\n\$(bash \$MANAGER_SCRIPT get)" | nc -l -p \$PORT -q 1 2>/dev/null || \\
+        echo -e "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n\r\n\$(bash \$MANAGER_SCRIPT get)" | nc -l \$PORT 2>/dev/null
     fi
+    sleep 1
+done
+EOF
+    chmod +x "$runner_script"
+
+    # 生成 Python 服务器脚本 (如果需要)
+    if command -v python3 &>/dev/null || command -v python &>/dev/null; then
+        start_python_server "$port" "generate_only"
+    fi
+
+    # 启动 Runner
+    nohup bash "$runner_script" > "$STATS_LOG" 2>&1 &
     
 
     
@@ -478,7 +482,12 @@ PYEOF
     
     chmod +x "$script_path"
     
-    # 启动 Python 服务器
+    # 如果是 generate_only 模式，则不启动
+    if [ "$2" = "generate_only" ]; then
+        return 0
+    fi
+    
+    # 兼容旧逻辑 (虽然现在主要用 runner)
     if command -v python3 &>/dev/null; then
         nohup python3 "$script_path" "$port" > "$STATS_LOG" 2>&1 &
     else
@@ -486,30 +495,7 @@ PYEOF
     fi
 }
 
-start_socat_server() {
-    local port=$1
-    while true; do
-        socat TCP-LISTEN:$port,reuseaddr,fork SYSTEM:"$0 handle_request" 2>/dev/null
-        sleep 1
-    done
-}
 
-start_nc_server() {
-    local port=$1
-    while true; do
-        echo -e "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n\r\n$(get_total_traffic)" | nc -l -p $port -q 1 2>/dev/null || \
-        echo -e "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n\r\n$(get_total_traffic)" | nc -l $port 2>/dev/null
-        sleep 0.1
-    done
-}
-
-start_ncat_server() {
-    local port=$1
-    while true; do
-        echo -e "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n\r\n$(get_total_traffic)" | ncat -l -p $port 2>/dev/null
-        sleep 0.1
-    done
-}
 
 handle_request() {
     read request
