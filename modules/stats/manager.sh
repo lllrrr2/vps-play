@@ -333,7 +333,7 @@ start_api_server() {
         fi
     fi
     
-    fi
+
     
     local pid=$!
     echo $pid > "$STATS_PID"
