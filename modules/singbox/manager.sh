@@ -456,12 +456,14 @@ OUTBOUND配置示例:
 EOF
 
 
-    # 生成分享链接 (sing-box 格式)
-    # 构造 Outbound JSON
+    # 生成分享链接
+    local server_ip=$(get_ip)
+    local anytls_link="anytls://${password}@${server_ip}:${port}#AnyTLS-${server_ip}"
     local out_json="{\"type\":\"anytls\",\"tag\":\"anytls-out\",\"server\":\"$server_ip\",\"server_port\":$port,\"password\":\"$password\"}"
     
-    # 保存到文件
-    echo "$out_json" > "$SINGBOX_DIR/anytls_link.txt"
+    # 保存链接和JSON
+    echo "$anytls_link" > "$SINGBOX_DIR/anytls_link.txt"
+    echo "$out_json" >> "$SINGBOX_DIR/anytls_link.txt"
 
     echo -e ""
     echo -e "${Green}========== AnyTLS 安装完成 ==========${Reset}"
@@ -469,7 +471,10 @@ EOF
     echo -e " 端口: ${Cyan}${port}${Reset}"
     echo -e " 密码: ${Cyan}${password}${Reset}"
     echo -e ""
-    echo -e " 分享配置(JSON行):"
+    echo -e " 分享链接:"
+    echo -e " ${Yellow}${anytls_link}${Reset}"
+    echo -e ""
+    echo -e " JSON配置:"
     echo -e " ${Yellow}${out_json}${Reset}"
     echo -e ""
     echo -e " ${Yellow}请查看 node_info.txt 获取完整配置${Reset}"
@@ -1203,11 +1208,11 @@ trojan://${password}@${server_ip}:${trojan_port}?sni=${CERT_DOMAIN:-www.bing.com
 密码: ${password}
 说明: 需 sing-box 1.12.0+ 客户端"
 
-    # 生成简化版 Outbound JSON 供复制
+    # 生成分享链接和JSON
+    local anytls_link="anytls://${password}@${server_ip}:${anytls_port}#AnyTLS-${server_ip}"
     local out_json="{\"type\":\"anytls\",\"tag\":\"anytls-out\",\"server\":\"$server_ip\",\"server_port\":$anytls_port,\"password\":\"$password\"}"
     links="${links}
-AnyTLS配置(JSON):
-${out_json}"
+${anytls_link}"
     fi
     
     # 生成完整配置
