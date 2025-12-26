@@ -11,17 +11,6 @@ let SUBUpdateTime = 6; //自定义订阅更新时间，单位小时
 let total = 99;//TB
 let timestamp = 4102329600000;//2099-12-31
 
-// VPS 流量统计 API 地址列表 (格式: http://IP:PORT/stats)
-// 在 VPS 上运行 vps-play 的流量统计模块后，将 API 地址添加到这里
-let VPS_STATS_APIS = `
-http://168.231.97.89:52789/stats
-`;
-// 示例:
-// let VPS_STATS_APIS = `
-// http://1.2.3.4:30001/stats
-// http://5.6.7.8:30002/stats
-// `;
-
 //节点链接 + 订阅链接
 let MainData = `
 https://cfxr.eu.org/getSub
@@ -29,7 +18,7 @@ https://cfxr.eu.org/getSub
 
 let urls = [];
 let subConverter = "SUBAPI.cmliussss.net"; //在线订阅转换后端，目前使用CM的订阅转换功能。支持自建psub 可自行搭建https://github.com/bulianglin/psub
-let subConfig = "https://raw.githubusercontent.com/hxzlplp7/ACL4SSR/refs/heads/main/Clash/config/ACL4SSR_Online_Full_MultiMode.ini"; //订阅配置文件
+let subConfig = "https://raw.githubusercontent.com/cmliu/ACL4SSR/main/Clash/config/ACL4SSR_Online_MultiCountry.ini"; //订阅配置文件
 let subProtocol = 'https';
 
 export default {
@@ -61,30 +50,10 @@ export default {
 		const 访客订阅 = guestToken;
 		//console.log(`${fakeUserID}\n${fakeHostName}`); // 打印fakeID
 
-		// 获取 VPS 流量统计 (如果配置了 VPS_STATS_APIS)
-		let trafficStats = await getVPSTrafficStats(env);
-		let UD = trafficStats.upload; // 上传流量
-		let DD = trafficStats.download; // 下载流量
-		let totalQuota = trafficStats.total; // 总配额
-		let expire = trafficStats.expire; // 过期时间
-
-		// 如果没有配置 VPS API，使用默认假数据
-		if (trafficStats.vps_count === 0) {
-			UD = Math.floor(((timestamp - Date.now()) / timestamp * total * 1099511627776) / 2);
-			DD = UD;
-			totalQuota = total * 1099511627776;
-			expire = Math.floor(timestamp / 1000);
-		}
-
+		let UD = Math.floor(((timestamp - Date.now()) / timestamp * total * 1099511627776) / 2);
+		total = total * 1099511627776;
+		let expire = Math.floor(timestamp / 1000);
 		SUBUpdateTime = env.SUBUPTIME || SUBUpdateTime;
-
-		// 调试端点: 访问 /debug 查看 API 请求结果
-		if (url.pathname === '/debug') {
-			const debugInfo = await debugVPSApis(env);
-			return new Response(JSON.stringify(debugInfo, null, 2), {
-				headers: { 'Content-Type': 'application/json' }
-			});
-		}
 
 		if (!([mytoken, fakeToken, 访客订阅].includes(token) || url.pathname == ("/" + mytoken) || url.pathname.includes("/" + mytoken + "?"))) {
 			if (TG == 1 && url.pathname !== "/" && url.pathname !== "/favicon.ico") await sendMessage(`#异常访问 ${FileName}`, request.headers.get('CF-Connecting-IP'), `UA: ${userAgent}</tg-spoiler>\n域名: ${url.hostname}\n<tg-spoiler>入口: ${url.pathname + url.search}</tg-spoiler>`);
@@ -112,18 +81,9 @@ export default {
 			let 重新汇总所有链接 = await ADD(MainData + '\n' + urls.join('\n'));
 			let 自建节点 = "";
 			let 订阅链接 = "";
-			let AnyTLS节点 = []; // 新增：保存 AnyTLS 节点
-
 			for (let x of 重新汇总所有链接) {
 				if (x.toLowerCase().startsWith('http')) {
 					订阅链接 += x + '\n';
-				} else if (x.toLowerCase().startsWith('anytls://')) {
-					// 解析并保存 AnyTLS 节点
-					const node = parseAnyTLSLink(x);
-					if (node) {
-						AnyTLS节点.push(node);
-						console.log('检测到 AnyTLS 节点:', node.remark);
-					}
 				} else {
 					自建节点 += x + '\n';
 				}
@@ -225,7 +185,7 @@ export default {
 				"content-type": "text/plain; charset=utf-8",
 				"Profile-Update-Interval": `${SUBUpdateTime}`,
 				"Profile-web-page-url": request.url.includes('?') ? request.url.split('?')[0] : request.url,
-				"Subscription-Userinfo": `upload=${UD}; download=${DD}; total=${totalQuota}; expire=${expire}`,
+				//"Subscription-Userinfo": `upload=${UD}; download=${UD}; total=${total}; expire=${expire}`,
 			};
 
 			if (订阅格式 == 'base64' || token == fakeToken) {
@@ -246,13 +206,7 @@ export default {
 				const subConverterResponse = await fetch(subConverterUrl, { headers: { 'User-Agent': userAgentHeader } });//订阅转换
 				if (!subConverterResponse.ok) return new Response(base64Data, { headers: responseHeaders });
 				let subConverterContent = await subConverterResponse.text();
-				if (订阅格式 == 'clash') {
-					subConverterContent = await clashFix(subConverterContent);
-					// 如果有 AnyTLS 节点，添加到 Clash 配置中
-					if (AnyTLS节点 && AnyTLS节点.length > 0) {
-						subConverterContent = await addAnyTLSToClash(subConverterContent, AnyTLS节点);
-					}
-				}
+				if (订阅格式 == 'clash') subConverterContent = await clashFix(subConverterContent);
 				// 只有非浏览器订阅才会返回SUBNAME
 				if (!userAgent.includes('mozilla')) responseHeaders["Content-Disposition"] = `attachment; filename*=utf-8''${encodeURIComponent(FileName)}`;
 				return new Response(subConverterContent, { headers: responseHeaders });
@@ -271,145 +225,6 @@ async function ADD(envadd) {
 	const add = addtext.split('\n');
 	//console.log(add);
 	return add;
-}
-
-// 调试函数: 测试所有 VPS API 的可访问性
-async function debugVPSApis(env) {
-	let statsApis = env.VPS_STATS_APIS || VPS_STATS_APIS;
-	const apiList = await ADD(statsApis);
-	const results = {
-		timestamp: new Date().toISOString(),
-		configured_apis: apiList.filter(api => api && api.trim()),
-		api_results: []
-	};
-	for (const apiUrl of results.configured_apis) {
-		const result = { url: apiUrl.trim(), status: 'pending' };
-		try {
-			const startTime = Date.now();
-			const response = await fetch(apiUrl.trim(), {
-				headers: { 'User-Agent': 'VPS-play-Worker/1.0' }
-			});
-			result.response_time = Date.now() - startTime;
-			result.status_code = response.status;
-
-			// 捕获响应头
-			result.headers = {};
-			for (const [key, value] of response.headers) {
-				result.headers[key] = value;
-			}
-
-			if (response.ok) {
-				const text = await response.text();
-				result.raw_response = text.substring(0, 500);
-				try {
-					result.parsed_json = JSON.parse(text);
-					result.status = 'success';
-				} catch (e) {
-					result.status = 'json_parse_error';
-					result.error = e.message;
-				}
-			} else {
-				result.status = 'http_error';
-			}
-		} catch (error) {
-			result.status = 'fetch_error';
-			result.error = error.message;
-		}
-		results.api_results.push(result);
-	}
-	return results;
-}
-
-// 获取所有 VPS 的流量统计汇总
-async function getVPSTrafficStats(env) {
-	// 从环境变量或默认配置获取 API 列表
-	let statsApis = env.VPS_STATS_APIS || VPS_STATS_APIS;
-	const apiList = await ADD(statsApis);
-
-	if (!apiList || apiList.length === 0 || (apiList.length === 1 && !apiList[0])) {
-		// 没有配置 API，使用默认值
-		return {
-			upload: 0,
-			download: 0,
-			used: 0,
-			total: total * 1099511627776, // 使用默认 total (TB)
-			remaining: total * 1099511627776,
-			expire: Math.floor(timestamp / 1000),
-			vps_count: 0,
-			vps_details: []
-		};
-	}
-
-	let totalUpload = 0;
-	let totalDownload = 0;
-	let totalQuota = 0;
-	let earliestExpire = 4102329600; // 2099-12-31
-	const vpsDetails = [];
-
-	// 并发请求所有 VPS 的流量统计
-	const promises = apiList.filter(api => api && api.trim()).map(async (apiUrl) => {
-		try {
-			const response = await fetch(apiUrl.trim(), {
-				headers: { 'User-Agent': 'VPS-play-Worker/1.0' },
-				cf: { timeout: 5000 }
-			});
-
-			if (response.ok) {
-				const data = await response.json();
-				return {
-					url: apiUrl,
-					success: true,
-					upload: data.upload || 0,
-					download: data.download || 0,
-					total: data.total || 0,
-					expire: data.expire || 4102329600,
-					time: data.time || 0
-				};
-			}
-		} catch (error) {
-			console.error(`获取 ${apiUrl} 流量失败:`, error);
-		}
-		return { url: apiUrl, success: false };
-	});
-
-	const results = await Promise.allSettled(promises);
-
-	for (const result of results) {
-		if (result.status === 'fulfilled' && result.value && result.value.success) {
-			const data = result.value;
-			totalUpload += data.upload;
-			totalDownload += data.download;
-			totalQuota += data.total;
-			if (data.expire < earliestExpire) {
-				earliestExpire = data.expire;
-			}
-			vpsDetails.push({
-				url: data.url,
-				upload: data.upload,
-				download: data.download,
-				total: data.total
-			});
-		}
-	}
-
-	// 如果没有成功获取到任何统计，使用默认值
-	if (vpsDetails.length === 0) {
-		totalQuota = total * 1099511627776;
-		earliestExpire = Math.floor(timestamp / 1000);
-	}
-
-	const totalUsed = totalUpload + totalDownload;
-
-	return {
-		upload: totalUpload,
-		download: totalDownload,
-		used: totalUsed,
-		total: totalQuota,
-		remaining: Math.max(0, totalQuota - totalUsed),
-		expire: earliestExpire,
-		vps_count: vpsDetails.length,
-		vps_details: vpsDetails
-	};
 }
 
 async function nginx() {
@@ -486,98 +301,6 @@ async function MD5MD5(text) {
 	return secondHex.toLowerCase();
 }
 
-// 解析 anytls:// 链接（改进版，参考 sublinkPro 实现）
-function parseAnyTLSLink(link) {
-	try {
-		// 支持完整的 URL 解析
-		// 格式: anytls://password@server:port?insecure=1&sni=example.com&fp=chrome#remark
-		// Reality: anytls://password@server:port?security=reality&sni=apple.com&fp=chrome&pbk=公钥&sid=短ID#remark
-		const url = new URL(link);
-
-		const server = url.hostname;
-		const port = parseInt(url.port) || 443;
-
-		// 密码解析逻辑 (参考 sub2clash)
-		// 优先使用 URL 中的 password (user:password@host)
-		// 如果没有 password，则使用 username (password@host)
-		let password = decodeURIComponent(url.password);
-		if (!password) {
-			password = decodeURIComponent(url.username);
-		}
-
-		const remark = url.hash ? decodeURIComponent(url.hash.substring(1)) : `AnyTLS-${server}`;
-
-		// 解析查询参数
-		const params = new URLSearchParams(url.search);
-		const insecure = params.get('insecure') === '1' || params.get('allowInsecure') === '1' || !params.has('insecure');
-		const sni = params.get('sni') || server;
-		const fingerprint = params.get('fp') || 'chrome';
-		const security = params.get('security') || '';
-
-		// Reality 参数
-		const publicKey = params.get('pbk') || '';
-		const shortId = params.get('sid') || '';
-
-		return {
-			password,
-			server,
-			port,
-			remark,
-			skipCertVerify: insecure,
-			sni,
-			fingerprint,
-			security,
-			// Reality 相关
-			publicKey,
-			shortId,
-			// 原始链接
-			raw: link
-		};
-	} catch (e) {
-		console.error('解析 AnyTLS 链接失败:', e, '链接:', link);
-
-		// 回退到简单解析（保持兼容性）
-		try {
-			const match = link.match(/^anytls:\/\/([^@]+)@([^:]+):(\d+)(?:#(.+))?$/);
-			if (!match) return null;
-
-			const [, password, server, port, remark] = match;
-			return {
-				password: decodeURIComponent(password),
-				server,
-				port: parseInt(port),
-				remark: remark ? decodeURIComponent(remark) : `AnyTLS-${server}`,
-				skipCertVerify: true,
-				sni: server,
-				fingerprint: 'chrome',
-				security: '',
-				publicKey: '',
-				shortId: '',
-				raw: link
-			};
-		} catch (e2) {
-			console.error('简单解析也失败:', e2);
-			return null;
-		}
-	}
-}
-
-// 将 AnyTLS 节点转换为 Clash YAML 格式（单行 Flow 格式）
-function anyTLSToClashYAML(node) {
-	// 简化格式，参考 sub2clash 实现
-	// 格式: {name: xxx, server: xxx, port: xxx, type: anytls, password: xxx, skip-cert-verify: true}
-	const parts = [
-		`name: ${node.remark}`,
-		`server: ${node.server}`,
-		`port: ${node.port}`,
-		`type: anytls`,
-		`password: ${node.password}`,
-		`skip-cert-verify: ${node.skipCertVerify}`
-	];
-
-	return `  - {${parts.join(', ')}}`;
-}
-
 function clashFix(content) {
 	if (content.includes('wireguard') && !content.includes('remote-dns-resolve')) {
 		let lines;
@@ -601,98 +324,6 @@ function clashFix(content) {
 		content = result;
 	}
 	return content;
-}
-
-// 将 AnyTLS 节点添加到 Clash YAML 配置中
-function addAnyTLSToClash(clashYAML, anyTLSNodes) {
-	try {
-		const lines = clashYAML.split('\n');
-		let proxiesIndex = -1;
-
-		// 找到 proxies: 的位置
-		for (let i = 0; i < lines.length; i++) {
-			if (lines[i].trim() === 'proxies:') {
-				proxiesIndex = i;
-				break;
-			}
-		}
-
-		if (proxiesIndex === -1) {
-			console.log('未找到 proxies 配置块');
-			return clashYAML;
-		}
-
-		// 收集 AnyTLS 节点名称
-		const anyTLSNames = anyTLSNodes.map(node => node.remark);
-
-		// 生成 AnyTLS 节点的 YAML
-		const anyTLSLines = [];
-		for (const node of anyTLSNodes) {
-			anyTLSLines.push(anyTLSToClashYAML(node));
-		}
-
-		// 在 proxies: 后插入 AnyTLS 节点
-		for (let i = anyTLSLines.length - 1; i >= 0; i--) {
-			lines.splice(proxiesIndex + 1, 0, anyTLSLines[i]);
-		}
-
-		// 将 AnyTLS 节点名称添加到 proxy-groups 中
-		// 查找所有 proxy-groups 中的 proxies 列表并添加节点
-		let inProxyGroups = false;
-		let inProxiesList = false;
-		let indentLevel = 0;
-
-		for (let i = 0; i < lines.length; i++) {
-			const line = lines[i];
-			const trimmed = line.trim();
-
-			// 检测 proxy-groups: 开始
-			if (trimmed === 'proxy-groups:') {
-				inProxyGroups = true;
-				continue;
-			}
-
-			// 检测离开 proxy-groups (遇到同级别的其他key)
-			if (inProxyGroups && !line.startsWith(' ') && !line.startsWith('\t') && trimmed !== '' && !trimmed.startsWith('#')) {
-				if (!trimmed.startsWith('-')) {
-					inProxyGroups = false;
-					continue;
-				}
-			}
-
-			// 在 proxy-groups 内，检测 proxies: 列表
-			if (inProxyGroups && trimmed === 'proxies:') {
-				inProxiesList = true;
-				indentLevel = line.search(/\S/);
-				continue;
-			}
-
-			// 在 proxies 列表内，找到第一个节点后插入 AnyTLS 节点
-			if (inProxiesList && trimmed.startsWith('- ')) {
-				const currentIndent = line.search(/\S/);
-				if (currentIndent > indentLevel) {
-					// 在第一个节点之前插入所有 AnyTLS 节点名称
-					const insertIndent = ' '.repeat(currentIndent);
-					for (let j = anyTLSNames.length - 1; j >= 0; j--) {
-						lines.splice(i, 0, `${insertIndent}- ${anyTLSNames[j]}`);
-					}
-					inProxiesList = false;
-				}
-			}
-
-			// 离开 proxies 列表
-			if (inProxiesList && !trimmed.startsWith('-') && trimmed !== '') {
-				inProxiesList = false;
-			}
-		}
-
-		const result = lines.join('\n');
-		console.log(`成功添加 ${anyTLSNodes.length} 个 AnyTLS 节点到 Clash 配置和分组`);
-		return result;
-	} catch (e) {
-		console.error('添加 AnyTLS 节点到 Clash 配置失败:', e);
-		return clashYAML;
-	}
 }
 
 async function proxyURL(proxyURL, url) {
