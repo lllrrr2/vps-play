@@ -2,6 +2,24 @@
 # sing-box 模块 - VPS-play
 # 多协议代理节点管理
 # 参考: Misaka-blog/hysteria-install, Misaka-blog/tuic-script
+#
+# Copyright (C) 2025 VPS-play Contributors
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+#
+# AnyTLS 协议实现参考了 GPL-3.0 许可的 argosbx 项目
+# https://github.com/yonggekkk/argosbx
 
 MODULE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
 [ -z "$MODULE_DIR" ] && MODULE_DIR="$HOME/vps-play/modules/singbox"
@@ -397,28 +415,45 @@ install_anytls() {
     [ -z "$password" ] && password=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
     echo -e "${Info} 密码: ${Cyan}$password${Reset}"
     
-    # 4. 配置内部转发端口
-    local internal_port=$(shuf -i 20000-60000 -n 1)
-    
-    # 5. 生成自签证书（AnyTLS 需要 TLS）
+    # 4. 生成自签证书（AnyTLS 需要 TLS）
     echo -e "${Info} 生成自签证书..."
     local cert_domain="bing.com"
-    openssl req -x509 -newkey ec:<(openssl ecparam -name prime256v1) \
-        -keyout "$CERT_DIR/anytls.key" \
-        -out "$CERT_DIR/anytls.crt" \
-        -days 36500 -nodes \
-        -subj "/CN=$cert_domain" 2>/dev/null
+    mkdir -p "$CERT_DIR"
     
-    if [ $? -ne 0 ]; then
-        echo -e "${Warning} 自签证书生成失败，尝试备用方法..."
+    # 方法1: EC prime256v1
+    if command -v openssl >/dev/null 2>&1; then
+        openssl ecparam -genkey -name prime256v1 -out "$CERT_DIR/anytls.key" >/dev/null 2>&1
+        openssl req -new -x509 -days 36500 -key "$CERT_DIR/anytls.key" \
+            -out "$CERT_DIR/anytls.crt" -subj "/CN=$cert_domain" >/dev/null 2>&1
+    fi
+    
+    # 方法2: RSA 2048 (备用)
+    if [ ! -f "$CERT_DIR/anytls.key" ]; then
+        echo -e "${Warning} EC证书生成失败，尝试RSA备用方法..."
         openssl req -x509 -newkey rsa:2048 \
             -keyout "$CERT_DIR/anytls.key" \
             -out "$CERT_DIR/anytls.crt" \
             -days 36500 -nodes \
-            -subj "/CN=$cert_domain" 2>/dev/null
+            -subj "/CN=$cert_domain" >/dev/null 2>&1
     fi
     
-    # 6. 生成配置文件
+    # 方法3: 从 GitHub 下载备用证书
+    if [ ! -f "$CERT_DIR/anytls.key" ]; then
+        echo -e "${Warning} 本地证书生成失败，正在下载备用证书..."
+        curl -sL -o "$CERT_DIR/anytls.key" \
+            "https://github.com/yonggekkk/argosbx/releases/download/argosbx/private.key" 2>/dev/null
+        curl -sL -o "$CERT_DIR/anytls.crt" \
+            "https://github.com/yonggekkk/argosbx/releases/download/argosbx/cert.pem" 2>/dev/null
+    fi
+    
+    if [ ! -f "$CERT_DIR/anytls.key" ] || [ ! -f "$CERT_DIR/anytls.crt" ]; then
+        echo -e "${Error} 证书生成/下载失败"
+        return 1
+    fi
+    
+    echo -e "${Info} 证书准备完成"
+    
+    # 5. 生成配置文件
     cat > "$SINGBOX_CONF" << EOF
 {
   "log": {
@@ -436,18 +471,12 @@ install_anytls() {
            "password": "$password"
         }
       ],
+      "padding_scheme": [],
       "tls": {
         "enabled": true,
         "certificate_path": "$CERT_DIR/anytls.crt",
         "key_path": "$CERT_DIR/anytls.key"
-      },
-      "detour": "mixed-in"
-    },
-    {
-      "type": "mixed",
-      "tag": "mixed-in",
-      "listen": "127.0.0.1",
-      "listen_port": $internal_port
+      }
     }
   ],
   "outbounds": [
@@ -461,6 +490,7 @@ EOF
 
     # 保存节点信息
     local server_ip=$(get_ip)
+    local hostname=$(hostname 2>/dev/null || echo "vps")
     cat > "$SINGBOX_DIR/node_info.txt" << EOF
 协议: AnyTLS
 地址: $server_ip
@@ -486,11 +516,9 @@ OUTBOUND配置示例:
 }
 EOF
 
-
-    # 生成分享链接
-    local server_ip=$(get_ip)
-    local anytls_link="anytls://${password}@${server_ip}:${port}#AnyTLS-${server_ip}"
-    local out_json="{\"type\":\"anytls\",\"tag\":\"anytls-out\",\"server\":\"$server_ip\",\"server_port\":$port,\"password\":\"$password\"}"
+    # 生成分享链接（参考 argosbx 格式，添加 insecure 参数）
+    local anytls_link="anytls://${password}@${server_ip}:${port}?insecure=1&allowInsecure=1#anytls-${hostname}"
+    local out_json="{\"type\":\"anytls\",\"tag\":\"anytls-out\",\"server\":\"$server_ip\",\"server_port\":$port,\"password\":\"$password\",\"tls\":{\"enabled\":true,\"server_name\":\"$cert_domain\",\"insecure\":true}}"
     
     # 保存链接和JSON
     echo "$anytls_link" > "$SINGBOX_DIR/anytls_link.txt"
@@ -510,7 +538,174 @@ EOF
     echo -e " JSON配置:"
     echo -e " ${Yellow}${out_json}${Reset}"
     echo -e ""
-    echo -e " ${Yellow}请查看 node_info.txt 获取完整配置${Reset}"
+    echo -e " ${Yellow}请查看 $SINGBOX_DIR/node_info.txt 获取完整配置${Reset}"
+    echo -e "${Green}========================================${Reset}"
+    
+    # 询问是否启动
+    read -p "是否立即启动? [Y/n]: " start_now
+    [[ ! $start_now =~ ^[Nn]$ ]] && start_singbox
+}
+
+# ==================== Any-Reality 配置 (AnyTLS + Reality) ====================
+install_any_reality() {
+    echo -e ""
+    echo -e "${Cyan}========== 安装 Any-Reality 节点 ==========${Reset}"
+    echo -e "${Info} Any-Reality 是 AnyTLS 协议与 Reality 的组合"
+    
+    # 1. 版本检查与升级
+    local min_ver="1.12.0"
+    local current_ver=""
+    
+    if [ -f "$SINGBOX_BIN" ]; then
+        current_ver=$($SINGBOX_BIN version 2>/dev/null | head -n1 | awk '{print $3}')
+    fi
+    
+    if [ -z "$current_ver" ] || ! version_ge "$current_ver" "$min_ver"; then
+        echo -e "${Warning} Any-Reality 需要 sing-box v${min_ver}+ (当前: ${current_ver:-未安装})"
+        echo -e "${Info} 正在自动升级内核..."
+        download_singbox "$min_ver"
+        if [ $? -ne 0 ]; then
+             echo -e "${Error} 内核升级失败，无法安装 Any-Reality"
+             return 1
+        fi
+    fi
+    
+    # 2. 配置端口
+    local port=$(config_port "Any-Reality")
+    
+    # 3. 配置密码
+    read -p "设置密码 [留空随机]: " password
+    [ -z "$password" ] && password=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
+    echo -e "${Info} 密码: ${Cyan}$password${Reset}"
+    
+    # 4. Reality 配置
+    echo -e ""
+    read -p "目标网站 (dest) [apple.com]: " dest
+    dest=${dest:-apple.com}
+    
+    read -p "Server Name [${dest}]: " server_name
+    server_name=${server_name:-$dest}
+    
+    # 5. 生成 Reality 密钥对
+    echo -e "${Info} 生成 Reality 密钥对..."
+    mkdir -p "$CERT_DIR/reality"
+    
+    if [ -e "$CERT_DIR/reality/private_key" ]; then
+        # 已存在，读取
+        private_key=$(cat "$CERT_DIR/reality/private_key")
+        public_key=$(cat "$CERT_DIR/reality/public_key")
+        short_id=$(cat "$CERT_DIR/reality/short_id")
+        echo -e "${Info} 使用已存在的 Reality 密钥"
+    else
+        # 生成新密钥对
+        local keypair=$($SINGBOX_BIN generate reality-keypair 2>/dev/null)
+        private_key=$(echo "$keypair" | awk '/PrivateKey/ {print $2}' | tr -d '"')
+        public_key=$(echo "$keypair" | awk '/PublicKey/ {print $2}' | tr -d '"')
+        short_id=$($SINGBOX_BIN generate rand --hex 4 2>/dev/null || head /dev/urandom | tr -dc a-f0-9 | head -c 8)
+        
+        # 保存
+        echo "$private_key" > "$CERT_DIR/reality/private_key"
+        echo "$public_key" > "$CERT_DIR/reality/public_key"
+        echo "$short_id" > "$CERT_DIR/reality/short_id"
+        echo -e "${Info} Reality 密钥生成完成"
+    fi
+    
+    # 6. 生成配置文件
+    cat > "$SINGBOX_CONF" << EOF
+{
+  "log": {
+    "level": "info",
+    "timestamp": true
+  },
+  "inbounds": [
+    {
+      "type": "anytls",
+      "tag": "anyreality-in",
+      "listen": "::",
+      "listen_port": $port,
+      "users": [
+        {
+           "password": "$password"
+        }
+      ],
+      "padding_scheme": [],
+      "tls": {
+        "enabled": true,
+        "server_name": "$server_name",
+        "reality": {
+          "enabled": true,
+          "handshake": {
+            "server": "$dest",
+            "server_port": 443
+          },
+          "private_key": "$private_key",
+          "short_id": ["$short_id"]
+        }
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ]
+}
+EOF
+
+    # 保存节点信息
+    local server_ip=$(get_ip)
+    local hostname=$(hostname 2>/dev/null || echo "vps")
+    cat > "$SINGBOX_DIR/node_info.txt" << EOF
+协议: Any-Reality (AnyTLS + Reality)
+地址: $server_ip
+端口: $port
+密码: $password
+目标网站: $dest
+SNI: $server_name
+公钥: $public_key
+Short ID: $short_id
+说明: 客户端需要支持 AnyTLS 的 sing-box (v1.12.0+)
+
+OUTBOUND配置示例:
+{
+  "type": "anytls",
+  "tag": "anyreality-out",
+  "server": "$server_ip",
+  "server_port": $port,
+  "password": "$password",
+  "tls": {
+    "enabled": true,
+    "server_name": "$server_name",
+    "reality": {
+      "enabled": true,
+      "public_key": "$public_key",
+      "short_id": "$short_id"
+    }
+  }
+}
+EOF
+
+    # 生成分享链接（参考 argosbx 格式）
+    local ar_link="anytls://${password}@${server_ip}:${port}?security=reality&sni=${server_name}&fp=chrome&pbk=${public_key}&sid=${short_id}&type=tcp&headerType=none#any-reality-${hostname}"
+    
+    # 保存链接
+    echo "$ar_link" > "$SINGBOX_DIR/anyreality_link.txt"
+
+    echo -e ""
+    echo -e "${Green}========== Any-Reality 安装完成 ==========${Reset}"
+    echo -e " 地址: ${Cyan}${server_ip}${Reset}"
+    echo -e " 端口: ${Cyan}${port}${Reset}"
+    echo -e " 密码: ${Cyan}${password}${Reset}"
+    echo -e " SNI:  ${Cyan}${server_name}${Reset}"
+    echo -e " 目标网站: ${Cyan}${dest}${Reset}"
+    echo -e " 公钥: ${Cyan}${public_key}${Reset}"
+    echo -e " Short ID: ${Cyan}${short_id}${Reset}"
+    echo -e ""
+    echo -e " 分享链接:"
+    echo -e " ${Yellow}${ar_link}${Reset}"
+    echo -e ""
+    echo -e " ${Yellow}请查看 $SINGBOX_DIR/node_info.txt 获取完整配置${Reset}"
     echo -e "${Green}========================================${Reset}"
     
     # 询问是否启动
@@ -1507,40 +1702,42 @@ EOF
         echo -e " ${Green}2.${Reset}  TUIC v5"
         echo -e " ${Green}3.${Reset}  VLESS Reality"
         echo -e " ${Green}4.${Reset}  AnyTLS (新)"
+        echo -e " ${Green}5.${Reset}  ${Cyan}Any-Reality${Reset} (AnyTLS + Reality)"
         echo -e "${Green}---------------------------------------------------${Reset}"
         echo -e " ${Yellow}多协议组合${Reset}"
-        echo -e " ${Green}5.${Reset}  ${Cyan}自定义组合${Reset} (多选协议)"
-        echo -e " ${Green}6.${Reset}  ${Cyan}预设组合${Reset} (一键安装)"
+        echo -e " ${Green}6.${Reset}  ${Cyan}自定义组合${Reset} (多选协议)"
+        echo -e " ${Green}7.${Reset}  ${Cyan}预设组合${Reset} (一键安装)"
         echo -e "${Green}---------------------------------------------------${Reset}"
         echo -e " ${Yellow}服务管理${Reset}"
-        echo -e " ${Green}7.${Reset}  启动"
-        echo -e " ${Green}8.${Reset}  停止"
-        echo -e " ${Green}9.${Reset}  重启"
-        echo -e " ${Green}10.${Reset} 查看状态"
+        echo -e " ${Green}8.${Reset}  启动"
+        echo -e " ${Green}9.${Reset}  停止"
+        echo -e " ${Green}10.${Reset} 重启"
+        echo -e " ${Green}11.${Reset} 查看状态"
         echo -e "${Green}---------------------------------------------------${Reset}"
-        echo -e " ${Green}11.${Reset} 查看节点信息"
-        echo -e " ${Green}12.${Reset} 查看配置文件"
-        echo -e " ${Green}13.${Reset} 卸载 sing-box"
+        echo -e " ${Green}12.${Reset} 查看节点信息"
+        echo -e " ${Green}13.${Reset} 查看配置文件"
+        echo -e " ${Green}14.${Reset} 卸载 sing-box"
         echo -e "${Green}---------------------------------------------------${Reset}"
         echo -e " ${Green}0.${Reset}  返回主菜单"
         echo -e "${Green}========================================================${Reset}"
         
-        read -p " 请选择 [0-13]: " choice
+        read -p " 请选择 [0-14]: " choice
         
         case "$choice" in
             1) install_hysteria2 ;;
             2) install_tuic ;;
             3) install_vless_reality ;;
             4) install_anytls ;;
-            5) install_combo ;;
-            6) install_preset_combo ;;
-            7) start_singbox ;;
-            8) stop_singbox ;;
-            9) restart_singbox ;;
-            10) status_singbox ;;
-            11) show_node_info ;;
-            12) view_config ;;
-            13) uninstall_singbox ;;
+            5) install_any_reality ;;
+            6) install_combo ;;
+            7) install_preset_combo ;;
+            8) start_singbox ;;
+            9) stop_singbox ;;
+            10) restart_singbox ;;
+            11) status_singbox ;;
+            12) show_node_info ;;
+            13) view_config ;;
+            14) uninstall_singbox ;;
             0) return 0 ;;
             *) echo -e "${Error} 无效选择" ;;
         esac

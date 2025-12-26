@@ -100,6 +100,8 @@ bash ~/vps-play/utils/env_detect.sh
 - Hysteria2 (推荐)
 - TUIC v5
 - VLESS Reality
+- **AnyTLS** (新，sing-box v1.12.0+)
+- **Any-Reality** (AnyTLS + Reality 组合)
 - Shadowsocks
 - Trojan
 - **多协议组合安装** (一键部署多个协议)
@@ -256,6 +258,25 @@ vps-play/
 
 ## 🔄 更新日志
 
+### v1.2.0 (2025-12-26)
+
+- ✨ 新增: **AnyTLS 协议支持**
+  - AnyTLS 基础协议（sing-box v1.12.0+）
+  - 三层证书备用方案（EC → RSA → 远程下载）
+  - 完善分享链接格式（添加 insecure 参数）
+- ✨ 新增: **Any-Reality 协议支持**
+  - AnyTLS + Reality 组合协议
+  - 自动生成 Reality 密钥对
+  - 支持自定义目标网站和 SNI
+- 🔧 改进: sing-box 菜单优化
+  - 添加 AnyTLS 和 Any-Reality 选项
+  - 自动版本检查和升级
+- 📚 文档: 新增详细配置文档
+  - `ANYTLS_ANALYSIS.md` - 协议分析
+  - `ANYTLS_INTEGRATION_REPORT.md` - 集成报告
+  - `ANYTLS_QUICK_REFERENCE.md` - 快速参考
+- 🙏 致谢: 感谢 [argosbx](https://github.com/yonggekkk/argosbx) 提供参考实现
+
 ### v1.1.0 (2025-12-24)
 
 - ✨ 新增: **跳板服务器模块** (SSH远程管理)
@@ -292,11 +313,23 @@ vps-play/
 
 ## 📄 许可证
 
-MIT License
+GPL-3.0 License
+
+**重要说明**：本项目参考了 GPL-3.0 许可的 [argosbx](https://github.com/yonggekkk/argosbx) 项目（AnyTLS 协议实现），因此整个项目采用 GPL-3.0 许可证，以确保合法合规。
+
+根据 GPL-3.0 许可证：
+- ✅ 您可以自由使用、修改和分发本项目
+- ✅ 您可以用于商业目的
+- ⚠️ 您必须开源您的修改版本
+- ⚠️ 您必须保持相同的 GPL-3.0 许可证
+- ⚠️ 您必须提供完整的源代码
+
+详细条款请查看 [LICENSE](LICENSE) 文件。
 
 ## 🙏 致谢
 
 本项目参考了以下优秀项目：
+- [argosbx](https://github.com/yonggekkk/argosbx) - AnyTLS 协议实现参考
 - [serv00-play](https://github.com/frankiejun/serv00-play)
 - [GostXray](https://github.com/hxzlplp7/GostXray)
 - [serv00-xui](https://github.com/hxzlplp7/serv00-xui)
