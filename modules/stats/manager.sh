@@ -250,37 +250,51 @@ EOF
 
 # ==================== 安装 HTTP 工具 ====================
 install_http_tool() {
-    echo -e "${Info} 尝试安装 HTTP 服务器工具..."
+    echo -e "${Info} 正在准备 HTTP 服务器环境..."
     
-    # 检测包管理器并安装
+    # 1. 优先尝试使用或下载 BusyBox (静态编译，最省内存)
+    local busybox_path="$HOME/.vps-play/app/busybox"
+    mkdir -p "$(dirname "$busybox_path")"
+    
+    if ! command -v busybox &>/dev/null && [ ! -f "$busybox_path" ]; then
+        echo -e "${Info} 正在下载静态 BusyBox (约1MB)..."
+        local arch=$(uname -m)
+        local busybox_url=""
+        
+        case "$arch" in
+            x86_64|amd64) busybox_url="https://busybox.net/downloads/binaries/1.35.0-x86_64-linux-musl/busybox" ;;
+            aarch64|arm64) busybox_url="https://busybox.net/downloads/binaries/1.35.0-aarch64-linux-musl/busybox" ;;
+            *) echo -e "${Warning} 不支持的架构用于自动下载 busybox: $arch" ;;
+        esac
+        
+        if [ -n "$busybox_url" ]; then
+            curl -sL "$busybox_url" -o "$busybox_path"
+            chmod +x "$busybox_path"
+            if [ -x "$busybox_path" ]; then
+                 echo -e "${Success} BusyBox 安装成功!"
+                 # 建立软链接或者添加到 PATH 比较麻烦，我们后续直接用绝对路径
+                 return 0
+            fi
+        fi
+    fi
+    
+    if command -v busybox &>/dev/null || [ -x "$busybox_path" ]; then
+        return 0
+    fi
+
+    # 2. 如果 BusyBox 失败，才尝试系统包管理器 (可能因内存不足被 kill)
+    echo -e "${Info} 尝试安装 socat/netcat..."
     if command -v apt-get &>/dev/null; then
-        echo -e "${Info} 检测到 apt，尝试安装 netcat..."
         apt-get update -qq 2>/dev/null
-        apt-get install -y netcat-openbsd 2>/dev/null || apt-get install -y netcat 2>/dev/null
-    elif command -v yum &>/dev/null; then
-        echo -e "${Info} 检测到 yum，尝试安装 ncat..."
-        yum install -y nmap-ncat 2>/dev/null || yum install -y nc 2>/dev/null
-    elif command -v dnf &>/dev/null; then
-        echo -e "${Info} 检测到 dnf，尝试安装 ncat..."
-        dnf install -y nmap-ncat 2>/dev/null
+        apt-get install -y socat 2>/dev/null || apt-get install -y netcat-openbsd 2>/dev/null
     elif command -v apk &>/dev/null; then
-        echo -e "${Info} 检测到 apk，尝试安装 netcat..."
-        apk add --no-cache netcat-openbsd 2>/dev/null
-    elif command -v pacman &>/dev/null; then
-        echo -e "${Info} 检测到 pacman，尝试安装 socat..."
-        pacman -S --noconfirm socat 2>/dev/null
-    elif command -v pkg &>/dev/null; then
-        # FreeBSD
-        echo -e "${Info} 检测到 pkg (FreeBSD)，尝试安装 socat..."
-        pkg install -y socat 2>/dev/null
-    else
-        echo -e "${Warning} 未检测到支持的包管理器"
-        return 1
+        apk add --no-cache socat 2>/dev/null || apk add --no-cache netcat-openbsd 2>/dev/null
+    elif command -v yum &>/dev/null; then
+        yum install -y socat 2>/dev/null || yum install -y nc 2>/dev/null
     fi
     
     # 验证安装
-    if command -v nc &>/dev/null || command -v ncat &>/dev/null || command -v socat &>/dev/null; then
-        echo -e "${Info} 工具安装成功"
+    if command -v nc &>/dev/null || command -v socat &>/dev/null; then
         return 0
     else
         return 1
@@ -324,7 +338,11 @@ UPDATER_PID=\$!
 
 # 启动 HTTP 服务循环 (前台阻塞)
 while true; do
-    if command -v busybox &>/dev/null; then
+    BUSYBOX_PATH="$HOME/.vps-play/app/busybox"
+    
+    if [ -x "\$BUSYBOX_PATH" ]; then
+        "\$BUSYBOX_PATH" httpd -f -p $port -h "\$STATS_DIR" > /dev/null 2>&1
+    elif command -v busybox &>/dev/null; then
         # Busybox httpd 是最轻量的选择
         busybox httpd -f -p $port -h "\$STATS_DIR" > /dev/null 2>&1
     elif command -v socat &>/dev/null; then
