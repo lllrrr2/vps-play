@@ -336,6 +336,7 @@ EOF
 
     # 启动 Runner
     nohup bash "$runner_script" > "$STATS_LOG" 2>&1 &
+    disown $!
     
 
     
@@ -417,6 +418,7 @@ start_argo_tunnel() {
         echo -e "${Info} 启动 Argo 隧道..."
         nohup "$cloudflared_bin" tunnel --url "http://127.0.0.1:$port" --no-autoupdate > "$STATS_DIR/argo.log" 2>&1 &
         local argo_pid=$!
+        disown $argo_pid
         echo $argo_pid > "$STATS_DIR/argo.pid"
         
         echo -e "${Info} 等待获取域名..."
