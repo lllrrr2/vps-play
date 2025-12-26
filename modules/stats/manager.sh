@@ -395,6 +395,7 @@ start_argo_tunnel() {
             *) echo -e "${Error} 不支持的系统: $(uname)"; return 1 ;;
         esac
         
+        mkdir -p "$(dirname "$cloudflared_bin")"
         curl -sL "$download_url" -o "$cloudflared_bin"
         chmod +x "$cloudflared_bin"
     fi
