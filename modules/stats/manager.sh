@@ -37,28 +37,42 @@ TRAFFIC_TOTAL=$DEFAULT_TOTAL
 TRAFFIC_EXPIRE=4102329600   # 2099-12-31
 
 # ==================== 获取 VPS 系统网络流量 ====================
-# 从 /proc/net/dev 或 /sys/class/net 读取网络接口流量
+# 支持 Linux 和 FreeBSD (Serv00/Hostuno)
+
+# 检测是否为 FreeBSD
+is_freebsd() {
+    [ "$(uname -s)" = "FreeBSD" ] && return 0 || return 1
+}
 
 get_primary_interface() {
-    # 获取主要网络接口 (排除 lo, docker, veth 等)
     local iface=""
     
-    # 尝试从默认路由获取
-    iface=$(ip route 2>/dev/null | grep default | awk '{print $5}' | head -1)
-    
-    # 如果没有，尝试常见接口名
-    if [ -z "$iface" ]; then
-        for name in eth0 ens3 ens18 enp0s3 venet0 em0; do
-            if [ -d "/sys/class/net/$name" ]; then
-                iface="$name"
-                break
-            fi
-        done
-    fi
-    
-    # 还是没有就取第一个非 lo 接口
-    if [ -z "$iface" ]; then
-        iface=$(ls /sys/class/net/ 2>/dev/null | grep -v lo | head -1)
+    if is_freebsd; then
+        # FreeBSD: 使用 netstat 获取默认路由接口
+        iface=$(netstat -rn 2>/dev/null | grep "^default" | awk '{print $NF}' | head -1)
+        
+        # 如果没有，尝试从 ifconfig 获取第一个非 lo 接口
+        if [ -z "$iface" ]; then
+            iface=$(ifconfig -l 2>/dev/null | tr ' ' '\n' | grep -v "^lo" | head -1)
+        fi
+    else
+        # Linux: 尝试从默认路由获取
+        iface=$(ip route 2>/dev/null | grep default | awk '{print $5}' | head -1)
+        
+        # 如果没有，尝试常见接口名
+        if [ -z "$iface" ]; then
+            for name in eth0 ens3 ens18 enp0s3 venet0; do
+                if [ -d "/sys/class/net/$name" ]; then
+                    iface="$name"
+                    break
+                fi
+            done
+        fi
+        
+        # 还是没有就取第一个非 lo 接口
+        if [ -z "$iface" ]; then
+            iface=$(ls /sys/class/net/ 2>/dev/null | grep -v lo | head -1)
+        fi
     fi
     
     echo "$iface"
@@ -75,25 +89,50 @@ get_interface_traffic() {
     local rx_bytes=0
     local tx_bytes=0
     
-    # 方法1: 从 /sys/class/net 读取 (更准确)
-    if [ -f "/sys/class/net/$iface/statistics/rx_bytes" ]; then
-        rx_bytes=$(cat "/sys/class/net/$iface/statistics/rx_bytes" 2>/dev/null || echo 0)
-        tx_bytes=$(cat "/sys/class/net/$iface/statistics/tx_bytes" 2>/dev/null || echo 0)
-    # 方法2: 从 /proc/net/dev 读取
-    elif [ -f "/proc/net/dev" ]; then
-        local line=$(grep "$iface:" /proc/net/dev 2>/dev/null)
-        if [ -n "$line" ]; then
-            rx_bytes=$(echo "$line" | awk '{print $2}')
-            tx_bytes=$(echo "$line" | awk '{print $10}')
-        fi
-    # 方法3: FreeBSD 系统使用 netstat
-    elif command -v netstat &>/dev/null; then
-        local stats=$(netstat -ibn 2>/dev/null | grep -E "^$iface" | head -1)
+    if is_freebsd; then
+        # FreeBSD: 使用 netstat -ibn
+        # 格式: Name Mtu Network Address Ipkts Ierrs Ibytes Opkts Oerrs Obytes Coll
+        local stats=$(netstat -ibn 2>/dev/null | grep "^${iface}" | grep -v "^${iface}:" | head -1)
         if [ -n "$stats" ]; then
             rx_bytes=$(echo "$stats" | awk '{print $7}')
             tx_bytes=$(echo "$stats" | awk '{print $10}')
         fi
+        
+        # 如果还是 0，尝试用另一种方式
+        if [ "$rx_bytes" = "0" ] && [ "$tx_bytes" = "0" ]; then
+            # 使用 netstat -I 接口名
+            stats=$(netstat -I "$iface" -b 2>/dev/null | tail -1)
+            if [ -n "$stats" ]; then
+                rx_bytes=$(echo "$stats" | awk '{print $7}')
+                tx_bytes=$(echo "$stats" | awk '{print $10}')
+            fi
+        fi
+    else
+        # Linux: 从 /sys/class/net 读取
+        if [ -f "/sys/class/net/$iface/statistics/rx_bytes" ]; then
+            rx_bytes=$(cat "/sys/class/net/$iface/statistics/rx_bytes" 2>/dev/null || echo 0)
+            tx_bytes=$(cat "/sys/class/net/$iface/statistics/tx_bytes" 2>/dev/null || echo 0)
+        # 从 /proc/net/dev 读取
+        elif [ -f "/proc/net/dev" ]; then
+            local line=$(grep "$iface:" /proc/net/dev 2>/dev/null)
+            if [ -n "$line" ]; then
+                rx_bytes=$(echo "$line" | awk '{print $2}')
+                tx_bytes=$(echo "$line" | awk '{print $10}')
+            fi
+        fi
     fi
+    
+    # 确保返回数字
+    rx_bytes=${rx_bytes:-0}
+    tx_bytes=${tx_bytes:-0}
+    
+    # 验证是否为数字
+    case "$rx_bytes" in
+        ''|*[!0-9]*) rx_bytes=0 ;;
+    esac
+    case "$tx_bytes" in
+        ''|*[!0-9]*) tx_bytes=0 ;;
+    esac
     
     echo "$rx_bytes $tx_bytes"
 }
