@@ -1200,7 +1200,7 @@ trojan://${password}@${server_ip}:${trojan_port}?sni=${CERT_DOMAIN:-www.bing.com
       \"tag\": \"mixed-in-anytls\",
       \"listen\": \"127.0.0.1\",
       \"listen_port\": ${anytls_mixed_port}
-    }}"
+    }"
     
     node_info="${node_info}
 [AnyTLS]
