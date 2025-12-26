@@ -299,44 +299,44 @@ start_api_server() {
     echo -e "${Info} 启动流量统计 API 服务..."
     echo -e " 端口: ${Cyan}$port${Reset}"
     
-    # 生成启动脚本
+    # 初始化数据文件
+    get_total_traffic > "$STATS_DIR/stats"
+    
+    # 启动静态文件服务器
+    # 使用 python3 -m http.server 是最稳健的，它会自动服务当前目录下的文件
+    # 这里的技巧是：我们cd到STATS_DIR目录启动服务，这样 /stats 就对应了 STATS_DIR/stats 文件
+    
     local runner_script="$STATS_DIR/api_runner.sh"
     cat > "$runner_script" << EOF
 #!/bin/bash
-STATS_DIR="$STATS_DIR"
-PORT=$port
-MANAGER_SCRIPT="$0"
-
-# 加载函数
-source "\$MANAGER_SCRIPT"
-
-# 循环运行服务
+cd "$STATS_DIR"
 while true; do
     if command -v python3 &>/dev/null; then
-        "$STATS_DIR/api_server.py" "\$PORT"
+        python3 -m http.server $port > /dev/null 2>&1
     elif command -v python &>/dev/null; then
-        python "$STATS_DIR/api_server.py" "\$PORT"
-    elif command -v socat &>/dev/null; then
-        socat TCP-LISTEN:\$PORT,reuseaddr,fork SYSTEM:"\$MANAGER_SCRIPT handle_request" 2>/dev/null
-    elif command -v ncat &>/dev/null; then
-        echo -e "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n\r\n\$(bash \$MANAGER_SCRIPT get)" | ncat -l -p \$PORT 2>/dev/null
-    elif command -v nc &>/dev/null; then
-        echo -e "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n\r\n\$(bash \$MANAGER_SCRIPT get)" | nc -l -p \$PORT -q 1 2>/dev/null || \\
-        echo -e "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n\r\n\$(bash \$MANAGER_SCRIPT get)" | nc -l \$PORT 2>/dev/null
+        python -m http.server $port > /dev/null 2>&1
+    elif command -v busybox &>/dev/null; then
+        busybox httpd -f -p $port -h "$STATS_DIR" > /dev/null 2>&1
+    else
+        # 最后的兜底：用 nc 模拟一个极简的文件服务器 (如果不幸没有 python)
+        echo -e "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n\r\n" | cat - stats | nc -l -p $port -q 1
     fi
-    sleep 1
+    sleep 2
 done
 EOF
     chmod +x "$runner_script"
-
-    # 生成 Python 服务器脚本 (如果需要)
-    if command -v python3 &>/dev/null || command -v python &>/dev/null; then
-        start_python_server "$port" "generate_only"
-    fi
+    
+    # 添加定时任务，每分钟刷新一次数据
+    # 先清除旧任务
+    (crontab -l 2>/dev/null | grep -v "modules/stats/manager.sh update") | crontab -
+    # 添加新任务
+    (crontab -l 2>/dev/null; echo "* * * * * bash $HOME/vps-play/modules/stats/manager.sh update >/dev/null 2>&1") | crontab -
 
     # 启动 Runner
     nohup bash "$runner_script" > "$STATS_LOG" 2>&1 &
-    disown $!
+    local runner_pid=$!
+    disown $runner_pid
+    echo $runner_pid > "$STATS_PID" # 注意：这里我们要记录 runner 的 PID，而不是 nohup 的返回值（虽然通常是一样的）
     
 
     
@@ -526,6 +526,9 @@ stop_api_server() {
         if [ -t 0 ]; then
              rm -f "$STATS_DIR/argo_enabled"
         fi
+        
+        # 移除数据刷新 cron
+        (crontab -l 2>/dev/null | grep -v "modules/stats/manager.sh update") | crontab -
         
         echo -e "${Info} API 服务已停止"
     else
@@ -780,6 +783,10 @@ if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     case "${1:-menu}" in
         get|stats)
             get_total_traffic
+            ;;
+        update)
+            # 仅生成 stats 文件 (用于 cron)
+            get_total_traffic > "$STATS_DIR/stats"
             ;;
         start)
             start_api_server "${2:-$(shuf -i 30000-60000 -n 1)}"
