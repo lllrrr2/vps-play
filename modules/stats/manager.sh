@@ -314,11 +314,13 @@ start_api_server() {
     echo -e " 端口: ${Cyan}$port${Reset}"
     
     # 初始化数据文件
-    get_total_traffic > "$STATS_DIR/stats"
+    get_total_traffic > "$STATS_DIR/stats.json"
+    # 为了兼容旧 url，复制一份无后缀的
+    cp "$STATS_DIR/stats.json" "$STATS_DIR/stats"
     
     # 启动静态文件服务器
-    # 使用 python3 -m http.server 是最稳健的，它会自动服务当前目录下的文件
-    # 这里的技巧是：我们cd到STATS_DIR目录启动服务，这样 /stats 就对应了 STATS_DIR/stats 文件
+    # 使用 Busybox httpd 或 Python http.server 托管静态文件
+    # cd 到 STATS_DIR 目录启动服务，这样访问 /stats.json 就对应了 STATS_DIR/stats.json 文件
     
     local runner_script="$STATS_DIR/api_runner.sh"
     # 生成主 runner 脚本，负责启动 HTTP 服务和数据更新循环
@@ -347,7 +349,7 @@ while true; do
         busybox httpd -f -p $port -h "\$STATS_DIR" > /dev/null 2>&1
     elif command -v socat &>/dev/null; then
         # Socat 极其稳定，适合模拟简单的 HTTP 响应
-        socat TCP-LISTEN:$port,reuseaddr,fork SYSTEM:"echo -e 'HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nAccess-Control-Allow-Origin: *\r\n\r\n'; cat stats" 2>/dev/null
+        socat TCP-LISTEN:$port,reuseaddr,fork SYSTEM:"echo -e 'HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\nAccess-Control-Allow-Origin: *\r\n\r\n'; cat stats.json" 2>/dev/null
     elif command -v python3 &>/dev/null; then
         python3 -m http.server $port > /dev/null 2>&1
     elif command -v python &>/dev/null; then
@@ -357,10 +359,10 @@ while true; do
         # 注意：不同的 nc 版本参数可能不同，这里尝试最通用的写法
         if echo -e "HTTP/1.1 200 OK\r\n\r\n" | nc -l -p $port -q 1 >/dev/null 2>&1; then
              # 如果支持 -q 1
-             echo -e "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nAccess-Control-Allow-Origin: *\r\n\r\n" | cat - stats | nc -l -p $port -q 1
+             echo -e "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n\r\n" | cat - stats.json | nc -l -p $port -q 1
         else
              # 传统的 nc
-             echo -e "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nAccess-Control-Allow-Origin: *\r\n\r\n" | cat - stats | nc -l -p $port
+             echo -e "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n\r\n" | cat - stats.json | nc -l -p $port
         fi
     fi
     sleep 2
@@ -390,9 +392,9 @@ EOF
     echo "$port" > "$STATS_DIR/api_port"
     
     sleep 2
-    if kill -0 $pid 2>/dev/null; then
-        echo -e "${Info} API 服务已启动 (PID: $pid)"
-        local api_url="http://$(curl -s4 ip.sb 2>/dev/null || echo "YOUR_IP"):$port/stats"
+    if kill -0 $runner_pid 2>/dev/null; then
+        echo -e "${Info} API 服务已启动 (PID: $runner_pid)"
+        local api_url="http://$(curl -s4 ip.sb 2>/dev/null || echo "YOUR_IP"):$port/stats.json"
         echo -e "${Tip} API 地址: $api_url"
         
         # 检查是否需要启动 Argo (开机自启或交互选择)
@@ -472,7 +474,7 @@ start_argo_tunnel() {
         
         if [ -n "$argo_domain" ]; then
             echo -e "${Success} Argo 隧道启动成功!"
-            echo -e "${Tip} Argo API 地址: ${Cyan}${argo_domain}/stats${Reset}"
+            echo -e "${Tip} Argo API 地址: ${Cyan}${argo_domain}/stats.json${Reset}"
         else
             echo -e "${Warning} 获取域名超时，请稍后查看日志: $STATS_DIR/argo.log"
         fi
@@ -805,7 +807,7 @@ EOF
                     local ip=$(curl -s4 ip.sb 2>/dev/null || echo "YOUR_IP")
                     echo -e ""
                     echo -e "${Info} API 地址:"
-                    echo -e " ${Cyan}http://${ip}:${port}/stats${Reset}"
+                    echo -e " ${Cyan}http://${ip}:${port}/stats.json${Reset}"
                     echo -e ""
                     echo -e "${Tip} 在 worker.js 中添加此地址到 VPS_STATS_APIS 数组"
                 else
