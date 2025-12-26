@@ -760,7 +760,12 @@ EOF
             echo -e "${Info} sing-box 启动成功 (systemd)"
         else
             echo -e "${Error} 启动失败"
-            systemctl status sing-box
+            echo -e "${Info} 配置检查结果："
+            echo -e "===================="
+            "$SINGBOX_BIN" check -c "$SINGBOX_CONF" 2>&1 || true
+            echo -e "===================="
+            echo -e "${Info} systemd 状态："
+            systemctl status sing-box --no-pager
         fi
     else
         # 使用 nohup
