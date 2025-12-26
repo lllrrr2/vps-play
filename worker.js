@@ -14,6 +14,7 @@ let timestamp = 4102329600000;//2099-12-31
 // VPS 流量统计 API 地址列表 (格式: http://IP:PORT/stats)
 // 在 VPS 上运行 vps-play 的流量统计模块后，将 API 地址添加到这里
 let VPS_STATS_APIS = `
+http://168.231.97.89:52789/stats
 `;
 // 示例:
 // let VPS_STATS_APIS = `
@@ -77,6 +78,13 @@ export default {
 
 		SUBUpdateTime = env.SUBUPTIME || SUBUpdateTime;
 
+		// 调试端点: 访问 /debug 查看 API 请求结果
+		if (url.pathname === '/debug') {
+			const debugInfo = await debugVPSApis(env);
+			return new Response(JSON.stringify(debugInfo, null, 2), {
+				headers: { 'Content-Type': 'application/json' }
+			});
+		}
 
 		if (!([mytoken, fakeToken, 访客订阅].includes(token) || url.pathname == ("/" + mytoken) || url.pathname.includes("/" + mytoken + "?"))) {
 			if (TG == 1 && url.pathname !== "/" && url.pathname !== "/favicon.ico") await sendMessage(`#异常访问 ${FileName}`, request.headers.get('CF-Connecting-IP'), `UA: ${userAgent}</tg-spoiler>\n域名: ${url.hostname}\n<tg-spoiler>入口: ${url.pathname + url.search}</tg-spoiler>`);
@@ -104,9 +112,18 @@ export default {
 			let 重新汇总所有链接 = await ADD(MainData + '\n' + urls.join('\n'));
 			let 自建节点 = "";
 			let 订阅链接 = "";
+			let AnyTLS节点 = []; // 新增：保存 AnyTLS 节点
+
 			for (let x of 重新汇总所有链接) {
 				if (x.toLowerCase().startsWith('http')) {
 					订阅链接 += x + '\n';
+				} else if (x.toLowerCase().startsWith('anytls://')) {
+					// 解析并保存 AnyTLS 节点
+					const node = parseAnyTLSLink(x);
+					if (node) {
+						AnyTLS节点.push(node);
+						console.log('检测到 AnyTLS 节点:', node.remark);
+					}
 				} else {
 					自建节点 += x + '\n';
 				}
@@ -229,7 +246,13 @@ export default {
 				const subConverterResponse = await fetch(subConverterUrl, { headers: { 'User-Agent': userAgentHeader } });//订阅转换
 				if (!subConverterResponse.ok) return new Response(base64Data, { headers: responseHeaders });
 				let subConverterContent = await subConverterResponse.text();
-				if (订阅格式 == 'clash') subConverterContent = await clashFix(subConverterContent);
+				if (订阅格式 == 'clash') {
+					subConverterContent = await clashFix(subConverterContent);
+					// 如果有 AnyTLS 节点，添加到 Clash 配置中
+					if (AnyTLS节点 && AnyTLS节点.length > 0) {
+						subConverterContent = await addAnyTLSToClash(subConverterContent, AnyTLS节点);
+					}
+				}
 				// 只有非浏览器订阅才会返回SUBNAME
 				if (!userAgent.includes('mozilla')) responseHeaders["Content-Disposition"] = `attachment; filename*=utf-8''${encodeURIComponent(FileName)}`;
 				return new Response(subConverterContent, { headers: responseHeaders });
@@ -248,6 +271,53 @@ async function ADD(envadd) {
 	const add = addtext.split('\n');
 	//console.log(add);
 	return add;
+}
+
+// 调试函数: 测试所有 VPS API 的可访问性
+async function debugVPSApis(env) {
+	let statsApis = env.VPS_STATS_APIS || VPS_STATS_APIS;
+	const apiList = await ADD(statsApis);
+	const results = {
+		timestamp: new Date().toISOString(),
+		configured_apis: apiList.filter(api => api && api.trim()),
+		api_results: []
+	};
+	for (const apiUrl of results.configured_apis) {
+		const result = { url: apiUrl.trim(), status: 'pending' };
+		try {
+			const startTime = Date.now();
+			const response = await fetch(apiUrl.trim(), {
+				headers: { 'User-Agent': 'VPS-play-Worker/1.0' }
+			});
+			result.response_time = Date.now() - startTime;
+			result.status_code = response.status;
+
+			// 捕获响应头
+			result.headers = {};
+			for (const [key, value] of response.headers) {
+				result.headers[key] = value;
+			}
+
+			if (response.ok) {
+				const text = await response.text();
+				result.raw_response = text.substring(0, 500);
+				try {
+					result.parsed_json = JSON.parse(text);
+					result.status = 'success';
+				} catch (e) {
+					result.status = 'json_parse_error';
+					result.error = e.message;
+				}
+			} else {
+				result.status = 'http_error';
+			}
+		} catch (error) {
+			result.status = 'fetch_error';
+			result.error = error.message;
+		}
+		results.api_results.push(result);
+	}
+	return results;
 }
 
 // 获取所有 VPS 的流量统计汇总
@@ -416,6 +486,41 @@ async function MD5MD5(text) {
 	return secondHex.toLowerCase();
 }
 
+// 解析 anytls:// 链接
+function parseAnyTLSLink(link) {
+	try {
+		// anytls://password@server:port#remark
+		const match = link.match(/^anytls:\/\/([^@]+)@([^:]+):(\d+)(?:#(.+))?$/);
+		if (!match) return null;
+
+		const [, password, server, port, remark] = match;
+		return {
+			password: decodeURIComponent(password),
+			server,
+			port: parseInt(port),
+			remark: remark ? decodeURIComponent(remark) : `AnyTLS-${server}`
+		};
+	} catch (e) {
+		console.error('解析 AnyTLS 链接失败:', e);
+		return null;
+	}
+}
+
+// 将 AnyTLS 节点转换为 Clash YAML 格式
+function anyTLSToClashYAML(node) {
+	return `- name: ${node.remark}
+  type: anytls
+  server: ${node.server}
+  port: ${node.port}
+  password: "${node.password}"
+  client-fingerprint: chrome
+  udp: true
+  idle-session-check-interval: 30
+  idle-session-timeout: 30
+  min-idle-session: 0
+  skip-cert-verify: true`;
+}
+
 function clashFix(content) {
 	if (content.includes('wireguard') && !content.includes('remote-dns-resolve')) {
 		let lines;
@@ -439,6 +544,40 @@ function clashFix(content) {
 		content = result;
 	}
 	return content;
+}
+
+// 将 AnyTLS 节点添加到 Clash YAML 配置中
+function addAnyTLSToClash(clashYAML, anyTLSNodes) {
+	try {
+		// 找到 proxies: 的位置
+		const lines = clashYAML.split('\n');
+		let proxiesIndex = -1;
+
+		for (let i = 0; i < lines.length; i++) {
+			if (lines[i].trim() === 'proxies:') {
+				proxiesIndex = i;
+				break;
+			}
+		}
+
+		if (proxiesIndex === -1) {
+			console.log('未找到 proxies 配置块');
+			return clashYAML;
+		}
+
+		// 生成 AnyTLS 节点的 YAML
+		const anyTLSYAML = anyTLSNodes.map(node => anyTLSToClashYAML(node)).join('\n');
+
+		// 在 proxies: 后插入 AnyTLS 节点
+		lines.splice(proxiesIndex + 1, 0, anyTLSYAML);
+
+		const result = lines.join('\n');
+		console.log(`成功添加 ${anyTLSNodes.length} 个 AnyTLS 节点到 Clash 配置`);
+		return result;
+	} catch (e) {
+		console.error('添加 AnyTLS 节点到 Clash 配置失败:', e);
+		return clashYAML;
+	}
 }
 
 async function proxyURL(proxyURL, url) {
