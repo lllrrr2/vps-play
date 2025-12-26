@@ -189,8 +189,25 @@ config_port() {
 }
 
 # ==================== 下载安装 ====================
+# 版本比较函数 (大于等于)
+version_ge() {
+    # 如果版本相同
+    [ "$1" = "$2" ] && return 0
+    # 使用 sort -V 排序，取第一个如果是 $2，说明 $1 >= $2
+    # 注意：sort -V 在极简环境可能不支持，这里使用简单的逻辑：
+    # 如果系统有 sort -V
+    if sort -V </dev/null >/dev/null 2>&1; then
+        [ "$(echo -e "$1\n$2" | sort -V | head -n1)" = "$2" ]
+    else
+        # 简单回退：如果主版本号大，或者主版本相同次版本大...
+        # 这里为了简单，假设目标版本总是比当前高，或者直接比较字符串
+        [[ "$1" > "$2" ]]
+    fi
+}
+
 download_singbox() {
-    echo -e "${Info} 正在下载 sing-box v${SINGBOX_VERSION}..."
+    local target_version=${1:-$SINGBOX_VERSION}
+    echo -e "${Info} 正在下载 sing-box v${target_version}..."
     
     # 确保目录存在
     mkdir -p "$SINGBOX_DIR" "$CERT_DIR" "$CONFIG_DIR"
@@ -209,9 +226,12 @@ download_singbox() {
         armv7l) arch_type="armv7" ;;
     esac
     
-    local download_url="${SINGBOX_REPO}/releases/download/v${SINGBOX_VERSION}/sing-box-${SINGBOX_VERSION}-${os_type}-${arch_type}.tar.gz"
+    local download_url="${SINGBOX_REPO}/releases/download/v${target_version}/sing-box-${target_version}-${os_type}-${arch_type}.tar.gz"
     
     cd "$SINGBOX_DIR" || { echo -e "${Error} 无法进入目录"; return 1; }
+    
+    # 备份旧版本
+    [ -f "$SINGBOX_BIN" ] && mv "$SINGBOX_BIN" "${SINGBOX_BIN}.bak"
     
     curl -sL "$download_url" -o sing-box.tar.gz
     tar -xzf sing-box.tar.gz --strip-components=1
@@ -222,7 +242,8 @@ download_singbox() {
         echo -e "${Info} sing-box 下载完成"
         $SINGBOX_BIN version
     else
-        echo -e "${Error} 下载失败"
+        echo -e "${Error} 下载失败，还原旧版本..."
+        [ -f "${SINGBOX_BIN}.bak" ] && mv "${SINGBOX_BIN}.bak" "$SINGBOX_BIN"
         return 1
     fi
 }
@@ -327,6 +348,125 @@ EOF
     echo -e " 分享链接:"
     echo -e " ${Yellow}${hy2_link}${Reset}"
     echo -e "${Green}=========================================${Reset}"
+    
+    # 询问是否启动
+    read -p "是否立即启动? [Y/n]: " start_now
+    [[ ! $start_now =~ ^[Nn]$ ]] && start_singbox
+}
+
+
+# ==================== AnyTLS 配置 ====================
+install_anytls() {
+    echo -e ""
+    echo -e "${Cyan}========== 安装 AnyTLS 节点 ==========${Reset}"
+    
+    # 1. 版本检查与升级
+    local min_ver="1.12.0"
+    local current_ver=""
+    
+    if [ -f "$SINGBOX_BIN" ]; then
+        current_ver=$($SINGBOX_BIN version 2>/dev/null | head -n1 | awk '{print $3}')
+    fi
+    
+    if [ -z "$current_ver" ] || ! version_ge "$current_ver" "$min_ver"; then
+        echo -e "${Warning} AnyTLS 需要 sing-box v${min_ver}+ (当前: ${current_ver:-未安装})"
+        echo -e "${Info} 正在自动升级内核..."
+        download_singbox "$min_ver"
+        if [ $? -ne 0 ]; then
+             echo -e "${Error} 内核升级失败，无法安装 AnyTLS"
+             return 1
+        fi
+    fi
+    
+    # 2. 配置端口
+    local port=$(config_port "AnyTLS")
+    
+    # 3. 配置密码
+    read -p "设置密码 [留空随机]: " password
+    [ -z "$password" ] && password=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
+    echo -e "${Info} 密码: ${Cyan}$password${Reset}"
+    
+    # 4. 配置伪装域名 (Handshake)
+    read -p "设置伪装域名 (默认 www.bing.com): " handshake
+    [ -z "$handshake" ] && handshake="www.bing.com"
+    
+    # 5. 为了演示，不仅配置 AnyTLS 入站，还需要一个内部被转发的入站 (Detour)
+    local internal_port=$(shuf -i 20000-60000 -n 1)
+    
+    # 6. 生成配置文件
+    cat > "$SINGBOX_CONF" << EOF
+{
+  "log": {
+    "level": "info",
+    "timestamp": true
+  },
+  "inbounds": [
+    {
+      "type": "anytls",
+      "tag": "anytls-in",
+      "listen": "::",
+      "listen_port": $port,
+      "users": [
+        {
+           "password": "$password"
+        }
+      ],
+      "handshake": {
+          "server": "$handshake",
+          "server_port": 443
+      },
+      "detour": "mixed-in"
+    },
+    {
+      "type": "mixed",
+      "tag": "mixed-in",
+      "listen": "127.0.0.1",
+      "listen_port": $internal_port
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ]
+}
+EOF
+
+    # 保存节点信息
+    local server_ip=$(get_ip)
+    cat > "$SINGBOX_DIR/node_info.txt" << EOF
+协议: AnyTLS
+地址: $server_ip
+端口: $port
+密码: $password
+SNI(伪装): $handshake
+说明: 客户端需要安装支持 AnyTLS 的 sing-box (v1.12.0+)
+
+OUTBOUND配置示例:
+{
+  "type": "anytls",
+  "tag": "anytls-out",
+  "server": "$server_ip",
+  "server_port": $port,
+  "password": "$password",
+  "tls": {
+      "enabled": true,
+      "server_name": "$handshake",
+      "utls": {"enabled": true, "fingerprint": "chrome"}
+  }
+}
+EOF
+
+    echo -e ""
+    echo -e "${Green}========== AnyTLS 安装完成 ==========${Reset}"
+    echo -e " 地址: ${Cyan}${server_ip}${Reset}"
+    echo -e " 端口: ${Cyan}${port}${Reset}"
+    echo -e " 密码: ${Cyan}${password}${Reset}"
+    echo -e " SNI:  ${Cyan}${handshake}${Reset}"
+    echo -e ""
+    echo -e " ${Yellow}请查看 node_info.txt 获取完整配置${Reset}"
+    echo -e "${Green}========================================${Reset}"
     
     # 询问是否启动
     read -p "是否立即启动? [Y/n]: " start_now
@@ -1234,39 +1374,41 @@ EOF
         echo -e " ${Green}1.${Reset}  Hysteria2 (推荐)"
         echo -e " ${Green}2.${Reset}  TUIC v5"
         echo -e " ${Green}3.${Reset}  VLESS Reality"
+        echo -e " ${Green}4.${Reset}  AnyTLS (新)"
         echo -e "${Green}---------------------------------------------------${Reset}"
         echo -e " ${Yellow}多协议组合${Reset}"
-        echo -e " ${Green}4.${Reset}  ${Cyan}自定义组合${Reset} (多选协议)"
-        echo -e " ${Green}5.${Reset}  ${Cyan}预设组合${Reset} (一键安装)"
+        echo -e " ${Green}5.${Reset}  ${Cyan}自定义组合${Reset} (多选协议)"
+        echo -e " ${Green}6.${Reset}  ${Cyan}预设组合${Reset} (一键安装)"
         echo -e "${Green}---------------------------------------------------${Reset}"
         echo -e " ${Yellow}服务管理${Reset}"
-        echo -e " ${Green}6.${Reset}  启动"
-        echo -e " ${Green}7.${Reset}  停止"
-        echo -e " ${Green}8.${Reset}  重启"
-        echo -e " ${Green}9.${Reset}  查看状态"
+        echo -e " ${Green}7.${Reset}  启动"
+        echo -e " ${Green}8.${Reset}  停止"
+        echo -e " ${Green}9.${Reset}  重启"
+        echo -e " ${Green}10.${Reset} 查看状态"
         echo -e "${Green}---------------------------------------------------${Reset}"
-        echo -e " ${Green}10.${Reset} 查看节点信息"
-        echo -e " ${Green}11.${Reset} 查看配置文件"
-        echo -e " ${Green}12.${Reset} 卸载 sing-box"
+        echo -e " ${Green}11.${Reset} 查看节点信息"
+        echo -e " ${Green}12.${Reset} 查看配置文件"
+        echo -e " ${Green}13.${Reset} 卸载 sing-box"
         echo -e "${Green}---------------------------------------------------${Reset}"
         echo -e " ${Green}0.${Reset}  返回主菜单"
         echo -e "${Green}========================================================${Reset}"
         
-        read -p " 请选择 [0-12]: " choice
+        read -p " 请选择 [0-13]: " choice
         
         case "$choice" in
             1) install_hysteria2 ;;
             2) install_tuic ;;
             3) install_vless_reality ;;
-            4) install_combo ;;
-            5) install_preset_combo ;;
-            6) start_singbox ;;
-            7) stop_singbox ;;
-            8) restart_singbox ;;
-            9) status_singbox ;;
-            10) show_node_info ;;
-            11) [ -f "$SINGBOX_CONF" ] && cat "$SINGBOX_CONF" || echo -e "${Warning} 配置不存在" ;;
-            12) uninstall_singbox ;;
+            4) install_anytls ;;
+            5) install_combo ;;
+            6) install_preset_combo ;;
+            7) start_singbox ;;
+            8) stop_singbox ;;
+            9) restart_singbox ;;
+            10) check_status ;;
+            11) view_node_info ;;
+            12) view_config ;;
+            13) uninstall_singbox ;;
             0) return 0 ;;
             *) echo -e "${Error} 无效选择" ;;
         esac
