@@ -30,13 +30,16 @@ SINGBOX_BIN="$SINGBOX_DIR/sing-box"
 SINGBOX_CONF="$SINGBOX_DIR/config.json"
 SINGBOX_LOG="$SINGBOX_DIR/sing-box.log"
 CERT_DIR="$SINGBOX_DIR/cert"
+CONFIG_DIR="$SINGBOX_DIR/config"
 
+# 流量统计 API 端口 (clash_api)
+SINGBOX_API_PORT=9090
 
 # sing-box 版本
 SINGBOX_VERSION="1.10.0"
 SINGBOX_REPO="https://github.com/SagerNet/sing-box"
 
-mkdir -p "$SINGBOX_DIR" "$CERT_DIR"
+mkdir -p "$SINGBOX_DIR" "$CERT_DIR" "$CONFIG_DIR"
 
 # ==================== 系统检测 ====================
 REGEX=("debian" "ubuntu" "centos|red hat|kernel|oracle linux|alma|rocky" "'amazon linux'" "fedora" "alpine")
@@ -262,6 +265,12 @@ install_hysteria2() {
     "level": "info",
     "timestamp": true
   },
+  "experimental": {
+    "clash_api": {
+      "external_controller": "127.0.0.1:$SINGBOX_API_PORT",
+      "secret": ""
+    }
+  },
   "inbounds": [
     {
       "type": "hysteria2",
@@ -289,6 +298,9 @@ install_hysteria2() {
   ]
 }
 EOF
+    # 保存 API 端口供流量统计使用
+    echo "$SINGBOX_API_PORT" > "$SINGBOX_DIR/api_port"
+
 
     # 保存节点信息
     local server_ip=$(get_ip)
@@ -361,6 +373,12 @@ install_tuic() {
     "level": "info",
     "timestamp": true
   },
+  "experimental": {
+    "clash_api": {
+      "external_controller": "127.0.0.1:$SINGBOX_API_PORT",
+      "secret": ""
+    }
+  },
   "inbounds": [
     {
       "type": "tuic",
@@ -390,6 +408,9 @@ install_tuic() {
   ]
 }
 EOF
+    # 保存 API 端口供流量统计使用
+    echo "$SINGBOX_API_PORT" > "$SINGBOX_DIR/api_port"
+
 
     # 保存节点信息
     local server_ip=$(get_ip)
@@ -986,6 +1007,12 @@ trojan://${password}@${server_ip}:${trojan_port}?sni=${CERT_DOMAIN:-www.bing.com
     "level": "info",
     "timestamp": true
   },
+  "experimental": {
+    "clash_api": {
+      "external_controller": "127.0.0.1:$SINGBOX_API_PORT",
+      "secret": ""
+    }
+  },
   "inbounds": [${inbounds}
   ],
   "outbounds": [
@@ -996,6 +1023,8 @@ trojan://${password}@${server_ip}:${trojan_port}?sni=${CERT_DOMAIN:-www.bing.com
   ]
 }
 EOF
+    # 保存 API 端口供流量统计使用
+    echo "$SINGBOX_API_PORT" > "$SINGBOX_DIR/api_port"
     
     # 保存节点信息
     local active_protocols=""
