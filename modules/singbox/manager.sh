@@ -400,6 +400,24 @@ install_anytls() {
     # 4. 配置内部转发端口
     local internal_port=$(shuf -i 20000-60000 -n 1)
     
+    # 5. 生成自签证书（AnyTLS 需要 TLS）
+    echo -e "${Info} 生成自签证书..."
+    local cert_domain="bing.com"
+    openssl req -x509 -newkey ec:<(openssl ecparam -name prime256v1) \
+        -keyout "$CERT_DIR/anytls.key" \
+        -out "$CERT_DIR/anytls.crt" \
+        -days 36500 -nodes \
+        -subj "/CN=$cert_domain" 2>/dev/null
+    
+    if [ $? -ne 0 ]; then
+        echo -e "${Warning} 自签证书生成失败，尝试备用方法..."
+        openssl req -x509 -newkey rsa:2048 \
+            -keyout "$CERT_DIR/anytls.key" \
+            -out "$CERT_DIR/anytls.crt" \
+            -days 36500 -nodes \
+            -subj "/CN=$cert_domain" 2>/dev/null
+    fi
+    
     # 6. 生成配置文件
     cat > "$SINGBOX_CONF" << EOF
 {
@@ -418,6 +436,11 @@ install_anytls() {
            "password": "$password"
         }
       ],
+      "tls": {
+        "enabled": true,
+        "certificate_path": "$CERT_DIR/anytls.crt",
+        "key_path": "$CERT_DIR/anytls.key"
+      },
       "detour": "mixed-in"
     },
     {
@@ -443,7 +466,10 @@ EOF
 地址: $server_ip
 端口: $port
 密码: $password
-说明: 客户端需要安装支持 AnyTLS 的 sing-box (v1.12.0+)
+证书: 自签证书
+SNI: $cert_domain
+说明: 客户端需要安装支持 AnyTLS 的 sing-box (v1.12.0+) 或 Clash Meta
+      移动端(小火箭/NekoBox)需启用"允许不安全"或"skip-cert-verify"
 
 OUTBOUND配置示例:
 {
@@ -451,7 +477,12 @@ OUTBOUND配置示例:
   "tag": "anytls-out",
   "server": "$server_ip",
   "server_port": $port,
-  "password": "$password"
+  "password": "$password",
+  "tls": {
+    "enabled": true,
+    "server_name": "$cert_domain",
+    "insecure": true
+  }
 }
 EOF
 
@@ -470,6 +501,8 @@ EOF
     echo -e " 地址: ${Cyan}${server_ip}${Reset}"
     echo -e " 端口: ${Cyan}${port}${Reset}"
     echo -e " 密码: ${Cyan}${password}${Reset}"
+    echo -e " SNI:  ${Cyan}${cert_domain}${Reset}"
+    echo -e " ${Yellow}证书: 自签证书 (客户端需启用 skip-cert-verify)${Reset}"
     echo -e ""
     echo -e " 分享链接:"
     echo -e " ${Yellow}${anytls_link}${Reset}"
@@ -1183,6 +1216,19 @@ trojan://${password}@${server_ip}:${trojan_port}?sni=${CERT_DOMAIN:-www.bing.com
     fi
     # AnyTLS 配置
     if [ "$install_anytls" = true ]; then
+        # 生成自签证书
+        local cert_domain="bing.com"
+        openssl req -x509 -newkey ec:<(openssl ecparam -name prime256v1) \
+            -keyout "$CERT_DIR/anytls.key" \
+            -out "$CERT_DIR/anytls.crt" \
+            -days 36500 -nodes \
+            -subj "/CN=$cert_domain" 2>/dev/null || \
+        openssl req -x509 -newkey rsa:2048 \
+            -keyout "$CERT_DIR/anytls.key" \
+            -out "$CERT_DIR/anytls.crt" \
+            -days 36500 -nodes \
+            -subj "/CN=$cert_domain" 2>/dev/null
+        
         local anytls_mixed_port=$(shuf -i 20000-60000 -n 1)
         [ -n "$inbounds" ] && inbounds="${inbounds},"
         # 注意: JSON 中引用变量需要小心转义
@@ -1193,6 +1239,11 @@ trojan://${password}@${server_ip}:${trojan_port}?sni=${CERT_DOMAIN:-www.bing.com
       \"listen\": \"::\",
       \"listen_port\": ${anytls_port},
       \"users\": [{\"password\": \"${password}\"}],
+      \"tls\": {
+        \"enabled\": true,
+        \"certificate_path\": \"$CERT_DIR/anytls.crt\",
+        \"key_path\": \"$CERT_DIR/anytls.key\"
+      },
       \"detour\": \"mixed-in-anytls\"
     },
     {
@@ -1206,11 +1257,13 @@ trojan://${password}@${server_ip}:${trojan_port}?sni=${CERT_DOMAIN:-www.bing.com
 [AnyTLS]
 端口: ${anytls_port}
 密码: ${password}
-说明: 需 sing-box 1.12.0+ 客户端"
+SNI: ${cert_domain}
+证书: 自签证书
+说明: 需 sing-box 1.12.0+ 或 Clash Meta，客户端需启用 skip-cert-verify"
 
     # 生成分享链接和JSON
     local anytls_link="anytls://${password}@${server_ip}:${anytls_port}#AnyTLS-${server_ip}"
-    local out_json="{\"type\":\"anytls\",\"tag\":\"anytls-out\",\"server\":\"$server_ip\",\"server_port\":$anytls_port,\"password\":\"$password\"}"
+    local out_json="{\"type\":\"anytls\",\"tag\":\"anytls-out\",\"server\":\"$server_ip\",\"server_port\":$anytls_port,\"password\":\"$password\",\"tls\":{\"enabled\":true,\"server_name\":\"$cert_domain\",\"insecure\":true}}"
     links="${links}
 ${anytls_link}"
     fi
