@@ -259,13 +259,20 @@ start_api_server() {
     echo -e "${Info} 启动流量统计 API 服务..."
     echo -e " 端口: ${Cyan}$port${Reset}"
     
-    # 使用 nc 或 socat 创建简单的 HTTP 服务
-    if command -v socat &>/dev/null; then
+    # 按优先级尝试不同的 HTTP 服务器
+    if command -v python3 &>/dev/null; then
+        start_python_server "$port" &
+    elif command -v python &>/dev/null; then
+        start_python_server "$port" &
+    elif command -v socat &>/dev/null; then
         start_socat_server "$port" &
     elif command -v nc &>/dev/null; then
         start_nc_server "$port" &
+    elif command -v ncat &>/dev/null; then
+        start_ncat_server "$port" &
     else
-        echo -e "${Error} 需要 socat 或 nc (netcat) 来运行 API 服务"
+        echo -e "${Error} 没有找到可用的 HTTP 服务器工具"
+        echo -e "${Tip} 请安装以下任一工具: python3, socat, nc (netcat)"
         return 1
     fi
     
@@ -273,12 +280,68 @@ start_api_server() {
     echo $pid > "$STATS_PID"
     echo "$port" > "$STATS_DIR/api_port"
     
-    sleep 1
+    sleep 2
     if kill -0 $pid 2>/dev/null; then
         echo -e "${Info} API 服务已启动 (PID: $pid)"
         echo -e "${Tip} API 地址: http://$(curl -s4 ip.sb 2>/dev/null || echo "YOUR_IP"):$port/stats"
     else
         echo -e "${Error} API 服务启动失败"
+        rm -f "$STATS_PID"
+    fi
+}
+
+# Python HTTP 服务器 (优先使用)
+start_python_server() {
+    local port=$1
+    local script_path="$STATS_DIR/api_server.py"
+    
+    # 生成 Python API 服务器脚本
+    cat > "$script_path" << 'PYEOF'
+#!/usr/bin/env python3
+import http.server
+import socketserver
+import json
+import subprocess
+import sys
+import os
+
+PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8080
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+class StatsHandler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        
+        try:
+            # 调用 shell 脚本获取流量数据
+            result = subprocess.run(
+                ['bash', os.path.join(SCRIPT_DIR, '..', 'stats', 'manager.sh'), 'get'],
+                capture_output=True, text=True, timeout=10
+            )
+            if result.returncode == 0:
+                self.wfile.write(result.stdout.encode())
+            else:
+                self.wfile.write(b'{"error": "failed to get stats"}')
+        except Exception as e:
+            self.wfile.write(json.dumps({"error": str(e)}).encode())
+    
+    def log_message(self, format, *args):
+        pass  # 禁用日志
+
+with socketserver.TCPServer(("", PORT), StatsHandler) as httpd:
+    httpd.serve_forever()
+PYEOF
+    
+    chmod +x "$script_path"
+    
+    # 启动 Python 服务器
+    if command -v python3 &>/dev/null; then
+        nohup python3 "$script_path" "$port" > "$STATS_LOG" 2>&1 &
+    else
+        nohup python "$script_path" "$port" > "$STATS_LOG" 2>&1 &
     fi
 }
 
@@ -295,6 +358,14 @@ start_nc_server() {
     while true; do
         echo -e "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n\r\n$(get_total_traffic)" | nc -l -p $port -q 1 2>/dev/null || \
         echo -e "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n\r\n$(get_total_traffic)" | nc -l $port 2>/dev/null
+        sleep 0.1
+    done
+}
+
+start_ncat_server() {
+    local port=$1
+    while true; do
+        echo -e "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n\r\n$(get_total_traffic)" | ncat -l -p $port 2>/dev/null
         sleep 0.1
     done
 }
