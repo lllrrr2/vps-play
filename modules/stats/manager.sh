@@ -108,26 +108,36 @@ get_vps_traffic() {
     rx_bytes=${rx_bytes:-0}
     tx_bytes=${tx_bytes:-0}
     
-    echo "{\"interface\":\"$iface\",\"download\":$rx_bytes,\"upload\":$tx_bytes,\"total\":$((rx_bytes+tx_bytes))}"
+    # 直接返回变量，不用JSON格式
+    echo "$iface $rx_bytes $tx_bytes"
+}
+
+# JSON 解析辅助函数 (兼容 FreeBSD)
+json_get_value() {
+    local json="$1"
+    local key="$2"
+    echo "$json" | sed 's/.*"'"$key"'"[[:space:]]*:[[:space:]]*\([^,}]*\).*/\1/' | tr -d '"'
 }
 
 # ==================== 获取汇总流量 ====================
 get_total_traffic() {
     local vps_traffic=$(get_vps_traffic)
     
-    local download=$(echo "$vps_traffic" | grep -oP '"download":\s*\K[0-9]+')
-    local upload=$(echo "$vps_traffic" | grep -oP '"upload":\s*\K[0-9]+')
-    local interface=$(echo "$vps_traffic" | grep -oP '"interface":\s*"\K[^"]+')
+    local interface=$(echo "$vps_traffic" | awk '{print $1}')
+    local download=$(echo "$vps_traffic" | awk '{print $2}')
+    local upload=$(echo "$vps_traffic" | awk '{print $3}')
     
     download=${download:-0}
     upload=${upload:-0}
     
     local total_used=$((upload + download))
     
-    # 读取配额配置
+    # 读取配额配置 (使用兼容方式)
     if [ -f "$STATS_CONF" ]; then
-        TRAFFIC_TOTAL=$(grep -oP '"total":\s*\K[0-9]+' "$STATS_CONF" 2>/dev/null || echo $DEFAULT_TOTAL)
-        TRAFFIC_EXPIRE=$(grep -oP '"expire":\s*\K[0-9]+' "$STATS_CONF" 2>/dev/null || echo 4102329600)
+        TRAFFIC_TOTAL=$(sed -n 's/.*"total"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p' "$STATS_CONF" 2>/dev/null)
+        TRAFFIC_EXPIRE=$(sed -n 's/.*"expire"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p' "$STATS_CONF" 2>/dev/null)
+        [ -z "$TRAFFIC_TOTAL" ] && TRAFFIC_TOTAL=$DEFAULT_TOTAL
+        [ -z "$TRAFFIC_EXPIRE" ] && TRAFFIC_EXPIRE=4102329600
     fi
     
     cat <<EOF
@@ -143,6 +153,7 @@ get_total_traffic() {
 }
 EOF
 }
+
 
 
 # ==================== HTTP API 服务 ====================
@@ -258,11 +269,20 @@ show_traffic() {
     
     local traffic=$(get_total_traffic)
     
-    local upload=$(echo "$traffic" | grep -oP '"upload":\s*\K[0-9]+' | head -1)
-    local download=$(echo "$traffic" | grep -oP '"download":\s*\K[0-9]+' | head -1)
-    local used=$(echo "$traffic" | grep -oP '"used":\s*\K[0-9]+')
-    local total=$(echo "$traffic" | grep -oP '"total":\s*\K[0-9]+' | head -1)
-    local remaining=$(echo "$traffic" | grep -oP '"remaining":\s*\K-?[0-9]+')
+    # 使用 sed 解析 JSON (兼容 FreeBSD)
+    local upload=$(echo "$traffic" | sed -n 's/.*"upload"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p' | head -1)
+    local download=$(echo "$traffic" | sed -n 's/.*"download"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p' | head -1)
+    local used=$(echo "$traffic" | sed -n 's/.*"used"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p' | head -1)
+    local total=$(echo "$traffic" | sed -n 's/.*"total"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p' | head -1)
+    local remaining=$(echo "$traffic" | sed -n 's/.*"remaining"[[:space:]]*:[[:space:]]*\(-*[0-9]*\).*/\1/p' | head -1)
+    local interface=$(echo "$traffic" | sed -n 's/.*"interface"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+    
+    upload=${upload:-0}
+    download=${download:-0}
+    used=${used:-0}
+    total=${total:-0}
+    remaining=${remaining:-0}
+
     
     # 转换为可读格式 (纯bash，不依赖bc)
     format_bytes() {
@@ -286,6 +306,7 @@ show_traffic() {
         fi
     }
     
+    echo -e " 网络接口: ${Cyan}${interface:-未知}${Reset}"
     echo -e " 上传: ${Green}$(format_bytes $upload)${Reset}"
     echo -e " 下载: ${Green}$(format_bytes $download)${Reset}"
     echo -e " 已使用: ${Yellow}$(format_bytes $used)${Reset}"
