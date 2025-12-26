@@ -91,21 +91,12 @@ get_interface_traffic() {
     
     if is_freebsd; then
         # FreeBSD: 使用 netstat -ibn
-        # 格式: Name Mtu Network Address Ipkts Ierrs Ibytes Opkts Oerrs Obytes Coll
-        local stats=$(netstat -ibn 2>/dev/null | grep "^${iface}" | grep -v "^${iface}:" | head -1)
+        # 格式: Name Mtu Network Address Ipkts Ierrs Idrop Ibytes Opkts Oerrs Obytes Coll
+        # 列:    1    2   3       4      5     6     7     8      9     10    11     12
+        local stats=$(netstat -ibn 2>/dev/null | grep "^${iface}[[:space:]]" | grep "Link" | head -1)
         if [ -n "$stats" ]; then
-            rx_bytes=$(echo "$stats" | awk '{print $7}')
-            tx_bytes=$(echo "$stats" | awk '{print $10}')
-        fi
-        
-        # 如果还是 0，尝试用另一种方式
-        if [ "$rx_bytes" = "0" ] && [ "$tx_bytes" = "0" ]; then
-            # 使用 netstat -I 接口名
-            stats=$(netstat -I "$iface" -b 2>/dev/null | tail -1)
-            if [ -n "$stats" ]; then
-                rx_bytes=$(echo "$stats" | awk '{print $7}')
-                tx_bytes=$(echo "$stats" | awk '{print $10}')
-            fi
+            rx_bytes=$(echo "$stats" | awk '{print $8}')
+            tx_bytes=$(echo "$stats" | awk '{print $11}')
         fi
     else
         # Linux: 从 /sys/class/net 读取
