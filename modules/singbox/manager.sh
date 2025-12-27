@@ -517,7 +517,7 @@ OUTBOUND配置示例:
 EOF
 
     # 生成分享链接（完整格式，兼容 Worker.js 和 sublinkPro）
-    local anytls_link="anytls://${password}@${server_ip}:${port}?insecure=1&allowInsecure=1&sni=${cert_domain}&fp=chrome#anytls-${hostname}"
+    local anytls_link="anytls://${password}@${server_ip}:${port}?insecure=1&sni=${cert_domain}&fp=chrome&alpn=h2,http/1.1&udp=1#anytls-${hostname}"
     local out_json="{\"type\":\"anytls\",\"tag\":\"anytls-out\",\"server\":\"$server_ip\",\"server_port\":$port,\"password\":\"$password\",\"tls\":{\"enabled\":true,\"server_name\":\"$cert_domain\",\"insecure\":true}}"
     
     # 保存链接和JSON
@@ -1470,7 +1470,7 @@ SNI: ${cert_domain}
 说明: 需 sing-box 1.12.0+ 或 Clash Meta，客户端需启用 skip-cert-verify"
 
     # 生成分享链接和JSON
-    local anytls_link="anytls://${password}@${server_ip}:${anytls_port}#AnyTLS-${server_ip}"
+    local anytls_link="anytls://${password}@${server_ip}:${anytls_port}?insecure=1&sni=${cert_domain}&fp=chrome&alpn=h2,http/1.1&udp=1#AnyTLS-${server_ip}"
     local out_json="{\"type\":\"anytls\",\"tag\":\"anytls-out\",\"server\":\"$server_ip\",\"server_port\":$anytls_port,\"password\":\"$password\",\"tls\":{\"enabled\":true,\"server_name\":\"$cert_domain\",\"insecure\":true}}"
     links="${links}
 ${anytls_link}"
