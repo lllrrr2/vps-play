@@ -2204,7 +2204,7 @@ trojan://${password}@${server_ip}:${trojan_port}?sni=${CERT_DOMAIN:-www.bing.com
         
         local anytls_mixed_port=$(shuf -i 20000-60000 -n 1)
         [ -n "$inbounds" ] && inbounds="${inbounds},"
-        # 注意: JSON 中引用变量需要小心转义
+        # 参照 argosbx 的简单配置，不需要 detour
         inbounds="${inbounds}
     {
       \"type\": \"anytls\",
@@ -2212,18 +2212,12 @@ trojan://${password}@${server_ip}:${trojan_port}?sni=${CERT_DOMAIN:-www.bing.com
       \"listen\": \"::\",
       \"listen_port\": ${anytls_port},
       \"users\": [{\"password\": \"${password}\"}],
+      \"padding_scheme\": [],
       \"tls\": {
         \"enabled\": true,
         \"certificate_path\": \"$CERT_DIR/anytls.crt\",
         \"key_path\": \"$CERT_DIR/anytls.key\"
-      },
-      \"detour\": \"mixed-in-anytls\"
-    },
-    {
-      \"type\": \"mixed\",
-      \"tag\": \"mixed-in-anytls\",
-      \"listen\": \"127.0.0.1\",
-      \"listen_port\": ${anytls_mixed_port}
+      }
     }"
     
     node_info="${node_info}
@@ -2265,16 +2259,17 @@ ${anytls_link}"
         
         local ar_dest="apple.com"
         local ar_server_name="apple.com"
-        local ar_mixed_port=$(shuf -i 20000-60000 -n 1)
         
         [ -n "$inbounds" ] && inbounds="${inbounds},"
+        # 参照 argosbx 的简单配置，不需要 detour
         inbounds="${inbounds}
     {
       \"type\": \"anytls\",
-      \"tag\": \"any-reality-in\",
+      \"tag\": \"anyreality-in\",
       \"listen\": \"::\",
       \"listen_port\": ${ar_port},
       \"users\": [{\"password\": \"${password}\"}],
+      \"padding_scheme\": [],
       \"tls\": {
         \"enabled\": true,
         \"server_name\": \"${ar_server_name}\",
@@ -2287,14 +2282,7 @@ ${anytls_link}"
           \"private_key\": \"${private_key}\",
           \"short_id\": [\"${short_id}\"]
         }
-      },
-      \"detour\": \"mixed-in-ar\"
-    },
-    {
-      \"type\": \"mixed\",
-      \"tag\": \"mixed-in-ar\",
-      \"listen\": \"127.0.0.1\",
-      \"listen_port\": ${ar_mixed_port}
+      }
     }"
 
         node_info="${node_info}
