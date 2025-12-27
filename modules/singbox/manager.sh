@@ -1261,44 +1261,226 @@ add_protocol_any_reality() {
 # 重装现有节点
 reinstall_existing_node() {
     echo -e ""
-    echo -e "${Warning} 重装将覆盖现有配置，是否继续? [y/N]"
+    
+    if [ ! -f "$SINGBOX_CONF" ]; then
+        echo -e "${Warning} 当前没有配置，请先安装节点"
+        return 1
+    fi
+    
+    # 读取当前配置，检测协议类型
+    local protocols=$(grep -o '"type": *"[^"]*"' "$SINGBOX_CONF" | grep -v direct | grep -v mixed | cut -d'"' -f4 | sort -u)
+    local proto_count=$(echo "$protocols" | wc -w)
+    
+    echo -e "${Cyan}========== 重装节点 ==========${Reset}"
+    echo -e "${Info} 检测到以下协议 (共 $proto_count 个):"
+    echo -e ""
+    
+    local i=1
+    local proto_array=()
+    for proto in $protocols; do
+        proto_array+=("$proto")
+        echo -e " ${Green}$i.${Reset} $proto"
+        ((i++))
+    done
+    
+    echo -e ""
+    echo -e "${Yellow}==================== 重装选项 ====================${Reset}"
+    echo -e " ${Green}A.${Reset} 重装全部节点 (删除所有配置重新安装)"
+    echo -e " ${Green}S.${Reset} 重装单个节点 (只重装选择的协议，保留其他)"
+    echo -e " ${Green}C.${Reset} 自定义组合重装 (选择多个协议重装)"
+    echo -e " ${Green}N.${Reset} 安装全新的协议组合"
+    echo -e " ${Green}0.${Reset} 取消"
+    echo -e "${Yellow}=================================================${Reset}"
+    
+    read -p " 请选择 [A/S/C/N/0]: " reinstall_mode
+    
+    case "${reinstall_mode^^}" in
+        A|ALL)
+            reinstall_all_nodes "$protocols"
+            ;;
+        S|SINGLE)
+            reinstall_single_node "${proto_array[@]}"
+            ;;
+        C|CUSTOM)
+            reinstall_custom_nodes "${proto_array[@]}"
+            ;;
+        N|NEW)
+            echo -e "${Warning} 这将删除所有现有配置，是否继续? [y/N]"
+            read -p "" confirm
+            if [[ $confirm =~ ^[Yy]$ ]]; then
+                stop_singbox
+                rm -f "$SINGBOX_CONF" "$SINGBOX_DIR/node_info.txt" "$SINGBOX_DIR"/*_link.txt "$SINGBOX_DIR"/combo_links.txt
+                install_combo
+            fi
+            ;;
+        0) return 0 ;;
+        *) echo -e "${Error} 无效选择" ;;
+    esac
+}
+
+# 重装全部节点
+reinstall_all_nodes() {
+    local protocols=$1
+    
+    echo -e ""
+    echo -e "${Warning} 重装全部将删除所有配置并重新安装，是否继续? [y/N]"
     read -p "" confirm
     [[ ! $confirm =~ ^[Yy]$ ]] && return 0
     
-    # 读取当前配置，检测协议类型
-    if [ -f "$SINGBOX_CONF" ]; then
-        local protocols=$(grep -o '"type": *"[^"]*"' "$SINGBOX_CONF" | grep -v direct | cut -d'"' -f4 | sort -u)
-        echo -e "${Info} 检测到以下协议: $protocols"
-        echo -e ""
-        echo -e " ${Green}1.${Reset} 重装相同协议配置"
-        echo -e " ${Green}2.${Reset} 选择新协议重装"
-        echo -e " ${Green}0.${Reset} 取消"
-        
-        read -p " 请选择: " reinstall_choice
-        
-        case "$reinstall_choice" in
-            1)
-                # 停止服务，删除配置，重新运行相同协议
-                stop_singbox
-                rm -f "$SINGBOX_CONF" "$SINGBOX_DIR/node_info.txt" "$SINGBOX_DIR"/*_link.txt
-                
-                for proto in $protocols; do
-                    case "$proto" in
-                        hysteria2) install_hysteria2 ;;
-                        tuic) install_tuic ;;
-                        vless) install_vless_reality ;;
-                        anytls) install_anytls ;;
-                    esac
-                done
-                ;;
-            2)
-                install_combo
-                ;;
-            0) return 0 ;;
+    stop_singbox
+    rm -f "$SINGBOX_CONF" "$SINGBOX_DIR/node_info.txt" "$SINGBOX_DIR"/*_link.txt "$SINGBOX_DIR"/combo_links.txt
+    
+    echo -e "${Info} 正在重装所有协议..."
+    
+    for proto in $protocols; do
+        echo -e "${Info} 正在安装 $proto..."
+        case "$proto" in
+            hysteria2) install_hysteria2 ;;
+            tuic) install_tuic ;;
+            vless) install_vless_reality ;;
+            anytls) install_anytls ;;
         esac
+    done
+    
+    echo -e "${Info} 全部节点重装完成"
+}
+
+# 重装单个节点
+reinstall_single_node() {
+    local proto_array=("$@")
+    local proto_count=${#proto_array[@]}
+    
+    echo -e ""
+    echo -e "${Info} 选择要重装的单个节点:"
+    
+    local i=1
+    for proto in "${proto_array[@]}"; do
+        echo -e " ${Green}$i.${Reset} $proto"
+        ((i++))
+    done
+    echo -e " ${Green}0.${Reset} 取消"
+    
+    read -p " 请选择 [1-$proto_count]: " single_choice
+    
+    if [[ "$single_choice" =~ ^[0-9]+$ ]] && [ "$single_choice" -ge 1 ] && [ "$single_choice" -le "$proto_count" ]; then
+        local selected_proto="${proto_array[$((single_choice-1))]}"
+        
+        echo -e ""
+        echo -e "${Info} 将重装: ${Cyan}$selected_proto${Reset}"
+        echo -e "${Tip} 其他节点将保留不变"
+        echo -e "${Warning} 是否继续? [y/N]"
+        read -p "" confirm
+        [[ ! $confirm =~ ^[Yy]$ ]] && return 0
+        
+        # 使用 Python 删除指定协议的 inbound
+        if command -v python3 &>/dev/null; then
+            python3 -c "
+import json
+with open('$SINGBOX_CONF', 'r') as f:
+    config = json.load(f)
+
+# 删除指定类型的 inbound
+config['inbounds'] = [ib for ib in config['inbounds'] if ib.get('type') != '$selected_proto']
+
+with open('$SINGBOX_CONF', 'w') as f:
+    json.dump(config, f, indent=2)
+print('已删除 $selected_proto 配置')
+" 2>/dev/null
+        else
+            echo -e "${Warning} 需要 python3 来修改配置"
+            return 1
+        fi
+        
+        # 重新添加该协议
+        echo -e "${Info} 正在重新配置 $selected_proto..."
+        case "$selected_proto" in
+            hysteria2) add_protocol_hy2 ;;
+            tuic) add_protocol_tuic ;;
+            vless) add_protocol_vless ;;
+            anytls) add_protocol_anytls ;;
+        esac
+        
+        echo -e "${Info} $selected_proto 重装完成"
+    elif [ "$single_choice" = "0" ]; then
+        return 0
     else
-        echo -e "${Warning} 当前没有配置，请先安装节点"
+        echo -e "${Error} 无效选择"
     fi
+}
+
+# 自定义组合重装
+reinstall_custom_nodes() {
+    local proto_array=("$@")
+    local proto_count=${#proto_array[@]}
+    
+    echo -e ""
+    echo -e "${Info} 选择要重装的协议 (输入编号，用逗号分隔，如: 1,3):"
+    
+    local i=1
+    for proto in "${proto_array[@]}"; do
+        echo -e " ${Green}$i.${Reset} $proto"
+        ((i++))
+    done
+    
+    read -p " 请输入: " custom_choice
+    
+    if [ -z "$custom_choice" ]; then
+        echo -e "${Error} 未选择任何协议"
+        return 1
+    fi
+    
+    # 解析选择
+    IFS=',' read -ra selections <<< "$custom_choice"
+    local selected_protos=()
+    
+    for sel in "${selections[@]}"; do
+        sel=$(echo "$sel" | tr -d ' ')
+        if [[ "$sel" =~ ^[0-9]+$ ]] && [ "$sel" -ge 1 ] && [ "$sel" -le "$proto_count" ]; then
+            selected_protos+=("${proto_array[$((sel-1))]}")
+        fi
+    done
+    
+    if [ ${#selected_protos[@]} -eq 0 ]; then
+        echo -e "${Error} 无有效选择"
+        return 1
+    fi
+    
+    echo -e ""
+    echo -e "${Info} 将重装以下协议:"
+    for proto in "${selected_protos[@]}"; do
+        echo -e "  - ${Cyan}$proto${Reset}"
+    done
+    echo -e "${Tip} 其他节点将保留不变"
+    echo -e "${Warning} 是否继续? [y/N]"
+    read -p "" confirm
+    [[ ! $confirm =~ ^[Yy]$ ]] && return 0
+    
+    # 删除选中的协议
+    for proto in "${selected_protos[@]}"; do
+        if command -v python3 &>/dev/null; then
+            python3 -c "
+import json
+with open('$SINGBOX_CONF', 'r') as f:
+    config = json.load(f)
+config['inbounds'] = [ib for ib in config['inbounds'] if ib.get('type') != '$proto']
+with open('$SINGBOX_CONF', 'w') as f:
+    json.dump(config, f, indent=2)
+" 2>/dev/null
+        fi
+    done
+    
+    # 重新添加选中的协议
+    for proto in "${selected_protos[@]}"; do
+        echo -e "${Info} 正在重新配置 $proto..."
+        case "$proto" in
+            hysteria2) add_protocol_hy2 ;;
+            tuic) add_protocol_tuic ;;
+            vless) add_protocol_vless ;;
+            anytls) add_protocol_anytls ;;
+        esac
+    done
+    
+    echo -e "${Info} 自定义组合重装完成"
 }
 
 # 修改节点参数
