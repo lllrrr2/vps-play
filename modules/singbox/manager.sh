@@ -513,8 +513,8 @@ OUTBOUND配置示例:
 EOF
 
     # 生成分享链接（完整格式，兼容 Worker.js 和 sublinkPro）
-    local anytls_link="anytls://${password}@${server_ip}:${port}?insecure=1&sni=${cert_domain}&fp=chrome&alpn=h2,http/1.1&udp=1#anytls-${hostname}"
-    local out_json="{\"type\":\"anytls\",\"tag\":\"anytls-out\",\"server\":\"$server_ip\",\"server_port\":$port,\"password\":\"$password\",\"tls\":{\"enabled\":true,\"server_name\":\"$cert_domain\",\"insecure\":true}}"
+    local anytls_link="anytls://${password}@${server_ip}:${port}?insecure=1&sni=${server_ip}&fp=chrome&alpn=h2,http/1.1&udp=1#anytls-${hostname}"
+    local out_json="{\"type\":\"anytls\",\"tag\":\"anytls-out\",\"server\":\"$server_ip\",\"server_port\":$port,\"password\":\"$password\",\"tls\":{\"enabled\":true,\"server_name\":\"$server_ip\",\"insecure\":true}}"
     
     # 保存链接和JSON
     echo "$anytls_link" > "$SINGBOX_DIR/anytls_link.txt"
@@ -1263,11 +1263,11 @@ with open('$SINGBOX_CONF', 'w') as f:
         fi
         
         # 生成链接
-        local anytls_link="anytls://${password}@${server_ip}:${port}?insecure=1&sni=${cert_domain}&fp=chrome&alpn=h2,http/1.1&udp=1#anytls-add-${hostname}"
+        local anytls_link="anytls://${password}@${server_ip}:${port}?insecure=1&sni=${server_ip}&fp=chrome&alpn=h2,http/1.1&udp=1#anytls-add-${hostname}"
         echo "$anytls_link" >> "$SINGBOX_DIR/combo_links.txt"
         
         # 更新节点信息
-        echo -e "\n[AnyTLS-Added]\n端口: ${port}\n密码: ${password}\nSNI: ${cert_domain}" >> "$SINGBOX_DIR/node_info.txt"
+        echo -e "\n[AnyTLS-Added]\n端口: ${port}\n密码: ${password}\nSNI: ${server_ip}" >> "$SINGBOX_DIR/node_info.txt"
         
         echo -e "${Info} AnyTLS 节点已添加"
         echo -e "${Yellow}${anytls_link}${Reset}"
@@ -1993,13 +1993,13 @@ trojan://${password}@${server_ip}:${trojan_port}?sni=${CERT_DOMAIN:-www.bing.com
 [AnyTLS]
 端口: ${anytls_port}
 密码: ${password}
-SNI: ${cert_domain}
+SNI: ${server_ip}
 证书: 自签证书
 说明: 需 sing-box 1.12.0+ 或 Clash Meta，客户端需启用 skip-cert-verify"
 
     # 生成分享链接和JSON
-    local anytls_link="anytls://${password}@${server_ip}:${anytls_port}?insecure=1&sni=${cert_domain}&fp=chrome&alpn=h2,http/1.1&udp=1#AnyTLS-${server_ip}"
-    local out_json="{\"type\":\"anytls\",\"tag\":\"anytls-out\",\"server\":\"$server_ip\",\"server_port\":$anytls_port,\"password\":\"$password\",\"tls\":{\"enabled\":true,\"server_name\":\"$cert_domain\",\"insecure\":true}}"
+    local anytls_link="anytls://${password}@${server_ip}:${anytls_port}?insecure=1&sni=${server_ip}&fp=chrome&alpn=h2,http/1.1&udp=1#AnyTLS-${server_ip}"
+    local out_json="{\"type\":\"anytls\",\"tag\":\"anytls-out\",\"server\":\"$server_ip\",\"server_port\":$anytls_port,\"password\":\"$password\",\"tls\":{\"enabled\":true,\"server_name\":\"$server_ip\",\"insecure\":true}}"
     links="${links}
 ${anytls_link}"
     fi
