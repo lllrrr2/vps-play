@@ -1169,18 +1169,13 @@ add_protocol_hy2() {
         local server_ip=$(get_ip)
         local new_inbound="{\"type\":\"hysteria2\",\"tag\":\"hy2-add\",\"listen\":\"::\",\"listen_port\":${port},\"users\":[{\"password\":\"${password}\"}],\"tls\":{\"enabled\":true,\"alpn\":[\"h3\"],\"certificate_path\":\"${CERT_DIR}/cert.crt\",\"key_path\":\"${CERT_DIR}/private.key\"}}"
         
-        # 使用 Python 或 jq 添加 inbound
-        if command -v python3 &>/dev/null; then
-            python3 -c "
-import json
-with open('$SINGBOX_CONF', 'r') as f:
-    config = json.load(f)
-config['inbounds'].append($new_inbound)
-with open('$SINGBOX_CONF', 'w') as f:
-    json.dump(config, f, indent=2)
-" 2>/dev/null
+        # 使用 jq 添加 inbound
+        if command -v jq &>/dev/null; then
+            local tmp_conf="${SINGBOX_CONF}.tmp"
+            jq ".inbounds += [$new_inbound]" "$SINGBOX_CONF" > "$tmp_conf" && mv "$tmp_conf" "$SINGBOX_CONF"
         else
-            echo -e "${Warning} 需要 python3 来修改配置"
+            echo -e "${Warning} 需要 jq 来修改配置"
+            echo -e "${Tip} 请安装: apt install jq 或 yum install jq 或 apk add jq"
             return 1
         fi
         
@@ -1229,36 +1224,16 @@ add_protocol_anytls() {
         local server_ip=$(get_ip)
         local hostname=$(hostname)
         
-        # 使用 Python 添加 inbound
-        if command -v python3 &>/dev/null; then
-            python3 -c "
-import json
-with open('$SINGBOX_CONF', 'r') as f:
-    config = json.load(f)
-config['inbounds'].append({
-    'type': 'anytls',
-    'tag': 'anytls-add',
-    'listen': '::',
-    'listen_port': $port,
-    'users': [{'password': '$password'}],
-    'tls': {
-        'enabled': True,
-        'certificate_path': '$CERT_DIR/anytls.crt',
-        'key_path': '$CERT_DIR/anytls.key'
-    },
-    'detour': 'mixed-add'
-})
-config['inbounds'].append({
-    'type': 'mixed',
-    'tag': 'mixed-add',
-    'listen': '127.0.0.1',
-    'listen_port': $internal_port
-})
-with open('$SINGBOX_CONF', 'w') as f:
-    json.dump(config, f, indent=2)
-" 2>/dev/null
+        # 使用 jq 添加 inbound
+        local anytls_inbound="{\"type\":\"anytls\",\"tag\":\"anytls-add\",\"listen\":\"::\",\"listen_port\":${port},\"users\":[{\"password\":\"${password}\"}],\"tls\":{\"enabled\":true,\"certificate_path\":\"${CERT_DIR}/anytls.crt\",\"key_path\":\"${CERT_DIR}/anytls.key\"},\"detour\":\"mixed-add\"}"
+        local mixed_inbound="{\"type\":\"mixed\",\"tag\":\"mixed-add\",\"listen\":\"127.0.0.1\",\"listen_port\":${internal_port}}"
+        
+        if command -v jq &>/dev/null; then
+            local tmp_conf="${SINGBOX_CONF}.tmp"
+            jq ".inbounds += [$anytls_inbound, $mixed_inbound]" "$SINGBOX_CONF" > "$tmp_conf" && mv "$tmp_conf" "$SINGBOX_CONF"
         else
-            echo -e "${Warning} 需要 python3 来修改配置"
+            echo -e "${Warning} 需要 jq 来修改配置"
+            echo -e "${Tip} 请安装: apt install jq 或 yum install jq 或 apk add jq"
             return 1
         fi
         
@@ -1405,23 +1380,41 @@ reinstall_single_node() {
         read -p "" confirm
         [[ ! $confirm =~ ^[Yy]$ ]] && return 0
         
-        # 使用 Python 删除指定协议的 inbound
-        if command -v python3 &>/dev/null; then
-            python3 -c "
-import json
-with open('$SINGBOX_CONF', 'r') as f:
-    config = json.load(f)
-
-# 删除指定类型的 inbound
-config['inbounds'] = [ib for ib in config['inbounds'] if ib.get('type') != '$selected_proto']
-
-with open('$SINGBOX_CONF', 'w') as f:
-    json.dump(config, f, indent=2)
-print('已删除 $selected_proto 配置')
-" 2>/dev/null
+        # 使用 jq 或 sed 删除指定协议的 inbound
+        if command -v jq &>/dev/null; then
+            # 使用 jq 删除指定类型的 inbound
+            local tmp_conf="${SINGBOX_CONF}.tmp"
+            jq --arg type "$selected_proto" '.inbounds = [.inbounds[] | select(.type != $type)]' "$SINGBOX_CONF" > "$tmp_conf" && mv "$tmp_conf" "$SINGBOX_CONF"
+            echo -e "${Info} 已删除 $selected_proto 配置 (jq)"
         else
-            echo -e "${Warning} 需要 python3 来修改配置"
-            return 1
+            # 没有 jq，使用备用方案：重建整个配置
+            echo -e "${Warning} 未检测到 jq，将使用备用方案"
+            echo -e "${Tip} 建议安装 jq: apt install jq 或 yum install jq 或 apk add jq"
+            
+            # 备用方案：停止服务，保存其他协议的配置，重建
+            stop_singbox
+            
+            # 提取当前配置中的其他协议
+            local other_protos=""
+            for proto in "${proto_array[@]}"; do
+                if [ "$proto" != "$selected_proto" ]; then
+                    [ -n "$other_protos" ] && other_protos="${other_protos},"
+                    other_protos="${other_protos}$proto"
+                fi
+            done
+            
+            echo -e "${Info} 将保留的协议: $other_protos"
+            echo -e "${Warning} 备用方案需要重新配置所有节点，是否继续? [y/N]"
+            read -p "" confirm2
+            if [[ ! $confirm2 =~ ^[Yy]$ ]]; then
+                start_singbox
+                return 0
+            fi
+            
+            # 删除配置并重装
+            rm -f "$SINGBOX_CONF" "$SINGBOX_DIR/node_info.txt" "$SINGBOX_DIR"/*_link.txt "$SINGBOX_DIR"/combo_links.txt
+            install_combo
+            return 0
         fi
         
         # 重新添加该协议
@@ -1489,18 +1482,21 @@ reinstall_custom_nodes() {
     [[ ! $confirm =~ ^[Yy]$ ]] && return 0
     
     # 删除选中的协议
-    for proto in "${selected_protos[@]}"; do
-        if command -v python3 &>/dev/null; then
-            python3 -c "
-import json
-with open('$SINGBOX_CONF', 'r') as f:
-    config = json.load(f)
-config['inbounds'] = [ib for ib in config['inbounds'] if ib.get('type') != '$proto']
-with open('$SINGBOX_CONF', 'w') as f:
-    json.dump(config, f, indent=2)
-" 2>/dev/null
-        fi
-    done
+    if command -v jq &>/dev/null; then
+        for proto in "${selected_protos[@]}"; do
+            local tmp_conf="${SINGBOX_CONF}.tmp"
+            jq --arg type "$proto" '.inbounds = [.inbounds[] | select(.type != $type)]' "$SINGBOX_CONF" > "$tmp_conf" && mv "$tmp_conf" "$SINGBOX_CONF"
+        done
+        echo -e "${Info} 已删除选中协议的配置"
+    else
+        echo -e "${Warning} 未检测到 jq，无法进行部分重装"
+        echo -e "${Tip} 建议安装 jq: apt install jq 或 yum install jq 或 apk add jq"
+        echo -e "${Info} 将使用全量重装方案..."
+        stop_singbox
+        rm -f "$SINGBOX_CONF" "$SINGBOX_DIR/node_info.txt" "$SINGBOX_DIR"/*_link.txt "$SINGBOX_DIR"/combo_links.txt
+        install_combo
+        return 0
+    fi
     
     # 重新添加选中的协议
     for proto in "${selected_protos[@]}"; do
