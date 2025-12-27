@@ -1255,15 +1255,136 @@ add_protocol_anytls() {
 
 # 添加其他协议的占位函数
 add_protocol_tuic() {
-    echo -e "${Warning} TUIC 添加功能开发中..."
+    echo -e "${Info} 添加 TUIC 节点..."
+    
+    # 检查证书
+    if [ ! -f "$CERT_DIR/cert.crt" ]; then
+        echo -e "${Info} 需要配置 TLS 证书"
+        cert_menu
+    fi
+    
+    local port=$(config_port "TUIC")
+    read -p "设置密码 [留空随机]: " password
+    [ -z "$password" ] && password=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
+    local uuid=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen 2>/dev/null)
+    
+    if [ -f "$SINGBOX_CONF" ]; then
+        local server_ip=$(get_ip)
+        local new_inbound="{\"type\":\"tuic\",\"tag\":\"tuic-add\",\"listen\":\"::\",\"listen_port\":${port},\"users\":[{\"uuid\":\"${uuid}\",\"password\":\"${password}\"}],\"congestion_control\":\"bbr\",\"tls\":{\"enabled\":true,\"alpn\":[\"h3\"],\"certificate_path\":\"${CERT_DIR}/cert.crt\",\"key_path\":\"${CERT_DIR}/private.key\"}}"
+        
+        if command -v jq &>/dev/null; then
+            local tmp_conf="${SINGBOX_CONF}.tmp"
+            jq ".inbounds += [$new_inbound]" "$SINGBOX_CONF" > "$tmp_conf" && mv "$tmp_conf" "$SINGBOX_CONF"
+        else
+            echo -e "${Warning} 需要 jq 来修改配置"
+            echo -e "${Tip} 请安装: apt install jq 或 yum install jq 或 apk add jq"
+            return 1
+        fi
+        
+        # 生成链接
+        local tuic_link="tuic://${uuid}:${password}@${server_ip}:${port}?sni=${CERT_DOMAIN:-www.bing.com}&congestion_control=bbr&alpn=h3&allow_insecure=1#TUIC-Add-${server_ip}"
+        echo "$tuic_link" >> "$SINGBOX_DIR/combo_links.txt"
+        
+        echo -e "\n[TUIC-Added]\n端口: ${port}\nUUID: ${uuid}\n密码: ${password}" >> "$SINGBOX_DIR/node_info.txt"
+        
+        echo -e "${Info} TUIC 节点已添加"
+        echo -e "${Yellow}${tuic_link}${Reset}"
+        
+        restart_singbox
+    else
+        echo -e "${Error} 配置文件不存在"
+    fi
 }
 
 add_protocol_vless() {
-    echo -e "${Warning} VLESS 添加功能开发中..."
+    echo -e "${Info} 添加 VLESS Reality 节点..."
+    
+    local port=$(config_port "VLESS Reality")
+    local uuid=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen 2>/dev/null)
+    
+    # 生成 Reality 密钥对
+    local keypair=$($SINGBOX_BIN generate reality-keypair 2>/dev/null)
+    local private_key=$(echo "$keypair" | grep -i "privatekey" | awk '{print $2}')
+    local public_key=$(echo "$keypair" | grep -i "publickey" | awk '{print $2}')
+    local short_id=$(head /dev/urandom | tr -dc a-f0-9 | head -c 8)
+    local dest="www.apple.com"
+    
+    if [ -f "$SINGBOX_CONF" ]; then
+        local server_ip=$(get_ip)
+        local new_inbound="{\"type\":\"vless\",\"tag\":\"vless-add\",\"listen\":\"::\",\"listen_port\":${port},\"users\":[{\"uuid\":\"${uuid}\",\"flow\":\"xtls-rprx-vision\"}],\"tls\":{\"enabled\":true,\"server_name\":\"${dest}\",\"reality\":{\"enabled\":true,\"handshake\":{\"server\":\"${dest}\",\"server_port\":443},\"private_key\":\"${private_key}\",\"short_id\":[\"${short_id}\"]}}}"
+        
+        if command -v jq &>/dev/null; then
+            local tmp_conf="${SINGBOX_CONF}.tmp"
+            jq ".inbounds += [$new_inbound]" "$SINGBOX_CONF" > "$tmp_conf" && mv "$tmp_conf" "$SINGBOX_CONF"
+        else
+            echo -e "${Warning} 需要 jq 来修改配置"
+            return 1
+        fi
+        
+        # 生成链接
+        local vless_link="vless://${uuid}@${server_ip}:${port}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${dest}&fp=chrome&pbk=${public_key}&sid=${short_id}&type=tcp#VLESS-Reality-Add-${server_ip}"
+        echo "$vless_link" >> "$SINGBOX_DIR/combo_links.txt"
+        
+        echo -e "\n[VLESS-Reality-Added]\n端口: ${port}\nUUID: ${uuid}\n公钥: ${public_key}\n短ID: ${short_id}" >> "$SINGBOX_DIR/node_info.txt"
+        
+        echo -e "${Info} VLESS Reality 节点已添加"
+        echo -e "${Yellow}${vless_link}${Reset}"
+        
+        restart_singbox
+    else
+        echo -e "${Error} 配置文件不存在"
+    fi
 }
 
 add_protocol_any_reality() {
-    echo -e "${Warning} Any-Reality 添加功能开发中..."
+    echo -e "${Info} 添加 Any-Reality 节点..."
+    
+    # 版本检查
+    if ! version_ge "$(get_version)" "1.12.0"; then
+        echo -e "${Info} Any-Reality 需要升级 sing-box 到 1.12.0+"
+        download_singbox "1.12.0"
+    fi
+    
+    local port=$(config_port "Any-Reality")
+    read -p "设置密码 [留空随机]: " password
+    [ -z "$password" ] && password=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
+    
+    # 生成 Reality 密钥对
+    local keypair=$($SINGBOX_BIN generate reality-keypair 2>/dev/null)
+    local private_key=$(echo "$keypair" | grep -i "privatekey" | awk '{print $2}')
+    local public_key=$(echo "$keypair" | grep -i "publickey" | awk '{print $2}')
+    local short_id=$(head /dev/urandom | tr -dc a-f0-9 | head -c 8)
+    local server_name="www.apple.com"
+    local internal_port=$(shuf -i 20000-60000 -n 1)
+    
+    if [ -f "$SINGBOX_CONF" ]; then
+        local server_ip=$(get_ip)
+        local hostname=$(hostname)
+        
+        local ar_inbound="{\"type\":\"anytls\",\"tag\":\"any-reality-add\",\"listen\":\"::\",\"listen_port\":${port},\"users\":[{\"password\":\"${password}\"}],\"tls\":{\"enabled\":true,\"server_name\":\"${server_name}\",\"reality\":{\"enabled\":true,\"handshake\":{\"server\":\"${server_name}\",\"server_port\":443},\"private_key\":\"${private_key}\",\"short_id\":[\"${short_id}\"]}},\"detour\":\"mixed-ar-add\"}"
+        local mixed_inbound="{\"type\":\"mixed\",\"tag\":\"mixed-ar-add\",\"listen\":\"127.0.0.1\",\"listen_port\":${internal_port}}"
+        
+        if command -v jq &>/dev/null; then
+            local tmp_conf="${SINGBOX_CONF}.tmp"
+            jq ".inbounds += [$ar_inbound, $mixed_inbound]" "$SINGBOX_CONF" > "$tmp_conf" && mv "$tmp_conf" "$SINGBOX_CONF"
+        else
+            echo -e "${Warning} 需要 jq 来修改配置"
+            return 1
+        fi
+        
+        # 生成链接
+        local ar_link="anytls://${password}@${server_ip}:${port}?security=reality&sni=${server_name}&fp=chrome&pbk=${public_key}&sid=${short_id}&type=tcp&headerType=none#Any-Reality-Add-${hostname}"
+        echo "$ar_link" >> "$SINGBOX_DIR/combo_links.txt"
+        
+        echo -e "\n[Any-Reality-Added]\n端口: ${port}\n密码: ${password}\nSNI: ${server_name}\n公钥: ${public_key}\n短ID: ${short_id}" >> "$SINGBOX_DIR/node_info.txt"
+        
+        echo -e "${Info} Any-Reality 节点已添加"
+        echo -e "${Yellow}${ar_link}${Reset}"
+        
+        restart_singbox
+    else
+        echo -e "${Error} 配置文件不存在"
+    fi
 }
 
 # 重装现有节点
