@@ -60,15 +60,25 @@ DATA_DIR="$SINGBOX_DIR/data"
 LINKS_FILE="$SINGBOX_DIR/links.txt"
 mkdir -p "$DATA_DIR"
 
-# 初始化/获取 UUID (参照argosbx的insuuid函数)
+# 初始化/获取 UUID (参照argosbx的insuuid函数, 修复FreeBSD兼容性)
 init_uuid() {
     if [ -z "$uuid" ] && [ ! -e "$DATA_DIR/uuid" ]; then
+        # 方法1: 使用 sing-box 生成
         if [ -e "$SINGBOX_BIN" ]; then
             uuid=$("$SINGBOX_BIN" generate uuid 2>/dev/null)
         fi
+        # 方法2: Linux /proc
         [ -z "$uuid" ] && uuid=$(cat /proc/sys/kernel/random/uuid 2>/dev/null)
+        # 方法3: uuidgen
         [ -z "$uuid" ] && uuid=$(uuidgen 2>/dev/null)
-        [ -z "$uuid" ] && uuid=$(head /dev/urandom | tr -dc a-f0-9 | head -c 8)-$(head /dev/urandom | tr -dc a-f0-9 | head -c 4)-$(head /dev/urandom | tr -dc a-f0-9 | head -c 4)-$(head /dev/urandom | tr -dc a-f0-9 | head -c 4)-$(head /dev/urandom | tr -dc a-f0-9 | head -c 12)
+        # 方法4: 手动生成 (FreeBSD兼容，使用 LC_ALL=C 避免 Illegal byte sequence)
+        if [ -z "$uuid" ]; then
+            uuid=$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom 2>/dev/null | head -c 8)-$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom 2>/dev/null | head -c 4)-$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom 2>/dev/null | head -c 4)-$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom 2>/dev/null | head -c 4)-$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom 2>/dev/null | head -c 12)
+        fi
+        # 方法5: 使用 od 作为最后备用 (FreeBSD)
+        if [ -z "$uuid" ] || [ ${#uuid} -lt 32 ]; then
+            uuid=$(od -An -tx1 -N 16 /dev/urandom 2>/dev/null | tr -d ' \n' | sed 's/\(.\{8\}\)\(.\{4\}\)\(.\{4\}\)\(.\{4\}\)\(.\{12\}\)/\1-\2-\3-\4-\5/')
+        fi
         echo "$uuid" > "$DATA_DIR/uuid"
     elif [ -n "$uuid" ]; then
         echo "$uuid" > "$DATA_DIR/uuid"
@@ -288,19 +298,26 @@ download_singbox() {
     # 确保目录存在
     mkdir -p "$SINGBOX_DIR" "$CERT_DIR" "$CONFIG_DIR"
     
-    local os_type="linux"
-    local arch_type="amd64"
+    # 直接使用 uname 检测系统类型 (修复 Serv00/FreeBSD 检测)
+    local os_type
+    local arch_type
     
-    case "$OS_TYPE" in
+    case "$(uname -s | tr '[:upper:]' '[:lower:]')" in
         freebsd) os_type="freebsd" ;;
         linux) os_type="linux" ;;
+        darwin) os_type="darwin" ;;
+        *) os_type="linux" ;;
     esac
     
     case "$(uname -m)" in
         x86_64|amd64) arch_type="amd64" ;;
         aarch64|arm64) arch_type="arm64" ;;
         armv7l) arch_type="armv7" ;;
+        i386|i686) arch_type="386" ;;
+        *) arch_type="amd64" ;;
     esac
+    
+    echo -e "${Info} 检测到系统: ${os_type}-${arch_type}"
     
     local download_url="${SINGBOX_REPO}/releases/download/v${target_version}/sing-box-${target_version}-${os_type}-${arch_type}.tar.gz"
     
@@ -309,12 +326,33 @@ download_singbox() {
     # 备份旧版本
     [ -f "$SINGBOX_BIN" ] && mv "$SINGBOX_BIN" "${SINGBOX_BIN}.bak"
     
-    curl -sL "$download_url" -o sing-box.tar.gz
-    tar -xzf sing-box.tar.gz --strip-components=1
-    rm -f sing-box.tar.gz
-    chmod +x sing-box
+    # 下载并解压
+    echo -e "${Info} 下载地址: $download_url"
+    if ! curl -sL "$download_url" -o sing-box.tar.gz; then
+        echo -e "${Error} 下载失败"
+        [ -f "${SINGBOX_BIN}.bak" ] && mv "${SINGBOX_BIN}.bak" "$SINGBOX_BIN"
+        return 1
+    fi
     
-    if [ -f "$SINGBOX_BIN" ]; then
+    # 检查文件是否有效
+    if ! file sing-box.tar.gz 2>/dev/null | grep -q "gzip"; then
+        echo -e "${Error} 下载的文件不是有效的 gzip 文件"
+        rm -f sing-box.tar.gz
+        [ -f "${SINGBOX_BIN}.bak" ] && mv "${SINGBOX_BIN}.bak" "$SINGBOX_BIN"
+        return 1
+    fi
+    
+    # 解压 (FreeBSD 兼容)
+    if command -v gtar >/dev/null 2>&1; then
+        gtar -xzf sing-box.tar.gz --strip-components=1
+    else
+        tar -xzf sing-box.tar.gz --strip-components=1
+    fi
+    
+    rm -f sing-box.tar.gz
+    chmod +x sing-box 2>/dev/null
+    
+    if [ -f "$SINGBOX_BIN" ] && [ -x "$SINGBOX_BIN" ]; then
         echo -e "${Info} sing-box 下载完成"
         $SINGBOX_BIN version
     else
@@ -1861,14 +1899,13 @@ install_combo() {
         cert_menu
     fi
     
-    # 生成统一的 UUID 和密码
-    local uuid=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen 2>/dev/null || echo "$(head /dev/urandom | tr -dc a-f0-9 | head -c 8)-$(head /dev/urandom | tr -dc a-f0-9 | head -c 4)-$(head /dev/urandom | tr -dc a-f0-9 | head -c 4)-$(head /dev/urandom | tr -dc a-f0-9 | head -c 4)-$(head /dev/urandom | tr -dc a-f0-9 | head -c 12)")
-    local password=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
+    # 生成统一的 UUID 和密码 (FreeBSD 兼容)
+    init_uuid
+    local password="$uuid"  # 和 argosbx 一样，使用 UUID 作为密码
     
     echo -e ""
     echo -e "${Info} 统一认证信息:"
-    echo -e " UUID: ${Cyan}${uuid}${Reset}"
-    echo -e " 密码: ${Cyan}${password}${Reset}"
+    echo -e " UUID/密码: ${Cyan}${uuid}${Reset}"
     echo -e ""
     
     # 端口配置方式
@@ -2026,11 +2063,28 @@ tuic://${uuid}:${password}@${server_ip}:${tuic_port}?sni=${CERT_DOMAIN:-www.bing
     # VLESS Reality 配置
     if [ "$install_vless" = true ]; then
         echo -e "${Info} 生成 Reality 密钥..."
-        local keypair=$($SINGBOX_BIN generate reality-keypair 2>/dev/null)
-        local private_key=$(echo "$keypair" | grep -i "privatekey" | awk '{print $2}')
-        local public_key=$(echo "$keypair" | grep -i "publickey" | awk '{print $2}')
-        local short_id=$(head /dev/urandom | tr -dc a-f0-9 | head -c 8)
-        local dest="www.apple.com"
+        mkdir -p "$CERT_DIR/reality"
+        
+        # 复用已有密钥或生成新的 (参照 argosbx)
+        if [ -e "$CERT_DIR/reality/private_key" ]; then
+            private_key=$(cat "$CERT_DIR/reality/private_key")
+            public_key=$(cat "$CERT_DIR/reality/public_key")
+            short_id=$(cat "$CERT_DIR/reality/short_id")
+        else
+            local keypair=$($SINGBOX_BIN generate reality-keypair 2>/dev/null)
+            private_key=$(echo "$keypair" | awk '/PrivateKey/ {print $2}' | tr -d '"')
+            public_key=$(echo "$keypair" | awk '/PublicKey/ {print $2}' | tr -d '"')
+            # FreeBSD 兼容的 short_id 生成
+            short_id=$($SINGBOX_BIN generate rand --hex 4 2>/dev/null)
+            [ -z "$short_id" ] && short_id=$(od -An -tx1 -N 4 /dev/urandom 2>/dev/null | tr -d ' \n')
+            [ -z "$short_id" ] && short_id=$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom 2>/dev/null | head -c 8)
+            
+            # 保存密钥
+            echo "$private_key" > "$CERT_DIR/reality/private_key"
+            echo "$public_key" > "$CERT_DIR/reality/public_key"
+            echo "$short_id" > "$CERT_DIR/reality/short_id"
+        fi
+        local dest="apple.com"
         
         [ -n "$inbounds" ] && inbounds="${inbounds},"
         inbounds="${inbounds}
@@ -2189,14 +2243,28 @@ ${anytls_link}"
 
     # Any-Reality 配置
     if [ "$install_any_reality" = true ]; then
-        # 生成/复用 Reality 密钥
-        local keypair=$($SINGBOX_BIN generate reality-keypair 2>/dev/null)
-        local private_key=$(echo "$keypair" | grep -i "privatekey" | awk '{print $2}')
-        local public_key=$(echo "$keypair" | grep -i "publickey" | awk '{print $2}')
-        local short_id=$(head /dev/urandom | tr -dc a-f0-9 | head -c 8)
+        # 复用已有密钥或使用 VLESS 生成的密钥 (参照 argosbx)
+        mkdir -p "$CERT_DIR/reality"
+        if [ -e "$CERT_DIR/reality/private_key" ]; then
+            private_key=$(cat "$CERT_DIR/reality/private_key")
+            public_key=$(cat "$CERT_DIR/reality/public_key")
+            short_id=$(cat "$CERT_DIR/reality/short_id")
+        else
+            local keypair=$($SINGBOX_BIN generate reality-keypair 2>/dev/null)
+            private_key=$(echo "$keypair" | awk '/PrivateKey/ {print $2}' | tr -d '"')
+            public_key=$(echo "$keypair" | awk '/PublicKey/ {print $2}' | tr -d '"')
+            # FreeBSD 兼容的 short_id 生成
+            short_id=$($SINGBOX_BIN generate rand --hex 4 2>/dev/null)
+            [ -z "$short_id" ] && short_id=$(od -An -tx1 -N 4 /dev/urandom 2>/dev/null | tr -d ' \n')
+            [ -z "$short_id" ] && short_id=$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom 2>/dev/null | head -c 8)
+            
+            echo "$private_key" > "$CERT_DIR/reality/private_key"
+            echo "$public_key" > "$CERT_DIR/reality/public_key"
+            echo "$short_id" > "$CERT_DIR/reality/short_id"
+        fi
         
-        local ar_dest="www.apple.com"
-        local ar_server_name="www.apple.com"
+        local ar_dest="apple.com"
+        local ar_server_name="apple.com"
         local ar_mixed_port=$(shuf -i 20000-60000 -n 1)
         
         [ -n "$inbounds" ] && inbounds="${inbounds},"
