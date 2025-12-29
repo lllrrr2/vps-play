@@ -28,7 +28,6 @@ WARP_DIR="$HOME/.vps-play/warp"
 WARP_DATA_DIR="$WARP_DIR/data"
 WARP_ENDPOINT_FILE="$WARP_DATA_DIR/endpoint"
 WARP_RESULT_FILE="$WARP_DIR/endpoint_result.csv"
-OPTIMIZER_DIR="$VPSPLAY_DIR/warp-endpoint-optimizer-main"
 
 SINGBOX_DIR="$HOME/.vps-play/singbox"
 SINGBOX_BIN="$SINGBOX_DIR/sing-box"
@@ -225,13 +224,6 @@ run_endpoint_optimize() {
     echo -e "${Cyan}========== WARP Endpoint IP 优选 ==========${Reset}"
     echo -e ""
     
-    # 检查优选工具目录
-    if [ ! -d "$OPTIMIZER_DIR" ]; then
-        echo -e "${Error} 未找到 Endpoint 优选工具目录: $OPTIMIZER_DIR"
-        echo -e "${Tip} 请确保 warp-endpoint-optimizer-main 文件夹存在"
-        return 1
-    fi
-    
     local arch=$(get_cpu_arch)
     if [ $? -ne 0 ]; then
         return 1
@@ -246,19 +238,38 @@ run_endpoint_optimize() {
     # 停止 WARP 进行优选
     stop_warp_for_optimize
     
-    # 下载 WARP 优选工具
+    # 下载 WARP 优选工具 (Linux 版本)
     echo -e "${Info} 下载 Endpoint 优选工具 ($arch)..."
-    local download_url="https://gitlab.com/Misaka-blog/warp-script/-/raw/main/files/warp-yxip/warp-darwin-${arch}"
+    
+    # 根据系统选择正确的版本
+    local os_type="linux"
+    case "$(uname -s | tr '[:upper:]' '[:lower:]')" in
+        darwin) os_type="darwin" ;;
+        freebsd) os_type="freebsd" ;;
+        *) os_type="linux" ;;
+    esac
+    
+    local download_url="https://gitlab.com/Misaka-blog/warp-script/-/raw/main/files/warp-yxip/warp-${os_type}-${arch}"
     
     # 尝试多个下载源
-    if ! curl -sL "$download_url" -o "$warp_tool" 2>/dev/null; then
-        # 备用: 使用 ghproxy 加速
+    local download_success=false
+    
+    if curl -sL "$download_url" -o "$warp_tool" 2>/dev/null && [ -s "$warp_tool" ]; then
+        download_success=true
+    else
+        # 备用源1: ghproxy
+        echo -e "${Warning} 主线下载失败，尝试备用源..."
         download_url="https://mirror.ghproxy.com/$download_url"
-        if ! curl -sL "$download_url" -o "$warp_tool" 2>/dev/null; then
-            echo -e "${Error} 下载优选工具失败"
-            resume_warp_after_optimize
-            return 1
+        if curl -sL "$download_url" -o "$warp_tool" 2>/dev/null && [ -s "$warp_tool" ]; then
+            download_success=true
         fi
+    fi
+    
+    if [ "$download_success" = false ]; then
+        echo -e "${Error} 下载优选工具失败"
+        echo -e "${Tip} 您可以手动下载工具到 $warp_tool"
+        resume_warp_after_optimize
+        return 1
     fi
     
     chmod +x "$warp_tool"
@@ -1135,6 +1146,20 @@ add_warp_outbound_singbox() {
     
     echo -e "${Info} WARP Endpoint: ${Cyan}${ep_ip}:${ep_port}${Reset}"
     
+    # 尝试安装 jq (如果不存在)
+    if ! command -v jq &>/dev/null; then
+        echo -e "${Info} 尝试安装 jq..."
+        if command -v apt-get &>/dev/null; then
+            apt-get update -qq && apt-get install -y -qq jq 2>/dev/null
+        elif command -v yum &>/dev/null; then
+            yum install -y -q jq 2>/dev/null
+        elif command -v apk &>/dev/null; then
+            apk add --quiet jq 2>/dev/null
+        elif command -v pkg &>/dev/null; then
+            pkg install -y jq 2>/dev/null
+        fi
+    fi
+    
     # 使用 jq 修改配置 (如果可用)
     if command -v jq &>/dev/null; then
         # 构造 WARP endpoint 配置
@@ -1181,7 +1206,7 @@ WARP_EP_EOF
         
         if [ -n "$new_config" ] && echo "$new_config" | jq empty 2>/dev/null; then
             echo "$new_config" > "$config_file"
-            echo -e "${Info} Singbox 配置已更新"
+            echo -e "${Info} Singbox 配置已更新 (jq)"
             
             # 验证配置
             if [ -f "$SINGBOX_BIN" ]; then
@@ -1196,7 +1221,99 @@ WARP_EP_EOF
             
             return 0
         else
-            echo -e "${Error} jq 处理失败"
+            echo -e "${Warning} jq 处理失败，尝试 sed 方式..."
+        fi
+    fi
+    
+    # 备用方案：使用 sed 直接修改 JSON (简单但有限)
+    echo -e "${Info} 使用 sed 方式修改配置..."
+    
+    # 创建 WARP endpoint JSON 块
+    local warp_block=$(cat <<WARP_BLOCK_EOF
+  ],
+  "endpoints": [
+    {
+      "type": "wireguard",
+      "tag": "warp-out",
+      "address": ["172.16.0.2/32", "${warp_ipv6}/128"],
+      "private_key": "${WARP_PRIVATE_KEY}",
+      "peers": [{
+        "address": "${ep_ip}",
+        "port": ${ep_port},
+        "public_key": "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=",
+        "allowed_ips": ["0.0.0.0/0", "::/0"],
+        "reserved": ${warp_reserved}
+      }]
+    }
+  ],
+  "route": {
+    "rules": [{"action": "sniff"}],
+    "final": "warp-out"
+  }
+}
+WARP_BLOCK_EOF
+)
+    
+    # 检查配置文件是否已有 endpoints
+    if grep -q '"endpoints"' "$config_file" 2>/dev/null; then
+        echo -e "${Warning} 配置中已有 endpoints，使用手动方式"
+    else
+        # 尝试在 outbounds 结尾后添加 endpoints
+        # 先找到最后一个 } 并替换
+        if grep -q '"outbounds"' "$config_file" 2>/dev/null; then
+            # 使用 awk 处理 JSON，在文件末尾 } 前插入配置
+            local tmp_file="${config_file}.tmp"
+            awk -v warp="$warp_block" '
+            {
+                lines[NR] = $0
+            }
+            END {
+                # 找到最后一个 }
+                for (i = NR; i >= 1; i--) {
+                    if (lines[i] ~ /^[[:space:]]*\}[[:space:]]*$/) {
+                        last_brace = i
+                        break
+                    }
+                }
+                # 找到 outbounds 数组的结尾 ]
+                for (i = last_brace - 1; i >= 1; i--) {
+                    if (lines[i] ~ /^[[:space:]]*\][[:space:]]*,?[[:space:]]*$/) {
+                        # 输出到这一行
+                        for (j = 1; j < i; j++) {
+                            print lines[j]
+                        }
+                        # 插入 WARP 配置
+                        print warp
+                        break
+                    } else if (i == 1) {
+                        # 未找到，原样输出
+                        for (j = 1; j <= NR; j++) {
+                            print lines[j]
+                        }
+                    }
+                }
+            }
+            ' "$config_file" > "$tmp_file" 2>/dev/null
+            
+            if [ -s "$tmp_file" ]; then
+                mv "$tmp_file" "$config_file"
+                echo -e "${Info} 配置已更新 (sed/awk)"
+                
+                # 验证
+                if [ -f "$SINGBOX_BIN" ]; then
+                    if "$SINGBOX_BIN" check -c "$config_file" 2>/dev/null; then
+                        echo -e "${Info} 配置验证通过"
+                        return 0
+                    else
+                        echo -e "${Error} 配置验证失败，恢复备份"
+                        cp "$backup_file" "$config_file"
+                    fi
+                else
+                    return 0
+                fi
+            else
+                rm -f "$tmp_file"
+            fi
         fi
     fi
     
@@ -1275,6 +1392,20 @@ add_warp_outbound_xray() {
     [ -z "$warp_reserved_xray" ] && warp_reserved_xray="0:0:0"
     
     echo -e "${Info} WARP Endpoint: ${Cyan}${ep_ip}:${ep_port}${Reset}"
+    
+    # 尝试安装 jq (如果不存在)
+    if ! command -v jq &>/dev/null; then
+        echo -e "${Info} 尝试安装 jq..."
+        if command -v apt-get &>/dev/null; then
+            apt-get update -qq && apt-get install -y -qq jq 2>/dev/null
+        elif command -v yum &>/dev/null; then
+            yum install -y -q jq 2>/dev/null
+        elif command -v apk &>/dev/null; then
+            apk add --quiet jq 2>/dev/null
+        elif command -v pkg &>/dev/null; then
+            pkg install -y jq 2>/dev/null
+        fi
+    fi
     
     # 使用 jq 修改配置
     if command -v jq &>/dev/null; then
