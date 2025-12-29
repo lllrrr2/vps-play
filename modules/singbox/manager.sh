@@ -137,6 +137,256 @@ get_experimental_config() {
     echo ""
 }
 
+# ==================== WARP 内置支持 (参照 argosbx) ====================
+WARP_DATA_DIR="$SINGBOX_DIR/warp"
+mkdir -p "$WARP_DATA_DIR"
+
+# 全局变量，标记是否启用 WARP 出站
+WARP_ENABLED=false
+
+# 初始化/获取 WARP 配置
+init_warp_config() {
+    echo -e "${Info} 初始化 WARP 配置..."
+    
+    # 检查是否已有配置
+    if [ -f "$WARP_DATA_DIR/private_key" ] && [ -f "$WARP_DATA_DIR/reserved" ]; then
+        echo -e "${Info} 检测到已存在的 WARP 配置"
+        WARP_PRIVATE_KEY=$(cat "$WARP_DATA_DIR/private_key")
+        WARP_RESERVED=$(cat "$WARP_DATA_DIR/reserved")
+        WARP_IPV6=$(cat "$WARP_DATA_DIR/ipv6" 2>/dev/null || echo "2606:4700:110:8f1a:c53:a4c5:2249:1546")
+        return 0
+    fi
+    
+    echo -e "${Info} 需要获取 WARP 配置，请选择方式:"
+    echo -e " ${Green}1.${Reset} 手动输入配置 (推荐，从本地 wgcf 工具获取)"
+    echo -e " ${Green}2.${Reset} 尝试自动注册 (可能失败)"
+    read -p "请选择 [1-2]: " warp_method
+    
+    case "$warp_method" in
+        2)
+            # 尝试自动注册
+            auto_register_warp
+            ;;
+        *)
+            # 手动输入
+            manual_input_warp
+            ;;
+    esac
+}
+
+# 手动输入 WARP 配置
+manual_input_warp() {
+    echo -e ""
+    echo -e "${Info} 请输入 WARP 配置信息"
+    echo -e "${Tip} 可以从本地 Python 工具 (warp_reg_gui.py) 生成的配置中获取"
+    echo -e ""
+    
+    read -p "PrivateKey: " WARP_PRIVATE_KEY
+    if [ -z "$WARP_PRIVATE_KEY" ]; then
+        echo -e "${Error} PrivateKey 不能为空"
+        return 1
+    fi
+    
+    # Reserved 可选，默认为空数组
+    read -p "Reserved (可选，格式如 [0,0,0] 留空跳过): " WARP_RESERVED_INPUT
+    if [ -n "$WARP_RESERVED_INPUT" ]; then
+        WARP_RESERVED="$WARP_RESERVED_INPUT"
+    else
+        WARP_RESERVED="[0,0,0]"
+    fi
+    
+    # IPv6 地址
+    read -p "IPv6 地址 (可选，留空使用默认): " WARP_IPV6_INPUT
+    if [ -n "$WARP_IPV6_INPUT" ]; then
+        WARP_IPV6="$WARP_IPV6_INPUT"
+    else
+        WARP_IPV6="2606:4700:110:8f1a:c53:a4c5:2249:1546"
+    fi
+    
+    # 保存配置
+    echo "$WARP_PRIVATE_KEY" > "$WARP_DATA_DIR/private_key"
+    echo "$WARP_RESERVED" > "$WARP_DATA_DIR/reserved"
+    echo "$WARP_IPV6" > "$WARP_DATA_DIR/ipv6"
+    
+    echo -e "${Info} WARP 配置已保存"
+    return 0
+}
+
+# 尝试自动注册 WARP
+auto_register_warp() {
+    echo -e "${Info} 尝试自动注册 WARP..."
+    
+    local wgcf_tmp="/tmp/wgcf_$$"
+    local wgcf_dir="/tmp/wgcf_config_$$"
+    mkdir -p "$wgcf_dir"
+    
+    # 下载 wgcf
+    local arch=$(uname -m)
+    local wgcf_arch="amd64"
+    case "$arch" in
+        aarch64|arm64) wgcf_arch="arm64" ;;
+    esac
+    
+    local wgcf_url="https://github.com/ViRb3/wgcf/releases/download/v2.2.22/wgcf_2.2.22_linux_${wgcf_arch}"
+    
+    echo -e "${Info} 下载 wgcf..."
+    if ! curl -sL "$wgcf_url" -o "$wgcf_tmp"; then
+        echo -e "${Error} wgcf 下载失败"
+        rm -rf "$wgcf_dir" "$wgcf_tmp"
+        return 1
+    fi
+    chmod +x "$wgcf_tmp"
+    
+    # 注册
+    cd "$wgcf_dir"
+    echo -e "${Info} 注册 WARP 账户..."
+    if ! yes 2>/dev/null | "$wgcf_tmp" register --accept-tos >/dev/null 2>&1; then
+        echo -e "${Error} WARP 注册失败，请使用手动输入方式"
+        rm -rf "$wgcf_dir" "$wgcf_tmp"
+        cd - >/dev/null
+        manual_input_warp
+        return $?
+    fi
+    
+    # 生成配置
+    "$wgcf_tmp" generate >/dev/null 2>&1
+    
+    if [ -f "$wgcf_dir/wgcf-profile.conf" ]; then
+        WARP_PRIVATE_KEY=$(grep "PrivateKey" "$wgcf_dir/wgcf-profile.conf" | awk '{print $3}')
+        WARP_IPV6=$(grep "Address" "$wgcf_dir/wgcf-profile.conf" | grep ":" | awk '{print $3}' | cut -d'/' -f1)
+        WARP_RESERVED="[0,0,0]"
+        
+        # 保存
+        echo "$WARP_PRIVATE_KEY" > "$WARP_DATA_DIR/private_key"
+        echo "$WARP_RESERVED" > "$WARP_DATA_DIR/reserved"
+        echo "$WARP_IPV6" > "$WARP_DATA_DIR/ipv6"
+        
+        echo -e "${Info} WARP 自动注册成功"
+    else
+        echo -e "${Error} 配置生成失败"
+        rm -rf "$wgcf_dir" "$wgcf_tmp"
+        cd - >/dev/null
+        return 1
+    fi
+    
+    rm -rf "$wgcf_dir" "$wgcf_tmp"
+    cd - >/dev/null
+    return 0
+}
+
+# 询问是否启用 WARP 出站
+ask_warp_outbound() {
+    echo -e ""
+    echo -e "${Cyan}是否启用 WARP 出站代理?${Reset}"
+    echo -e "${Tip} 启用后，节点流量将通过 Cloudflare WARP 出站"
+    echo -e "${Tip} 可用于解锁流媒体、隐藏真实 IP 等"
+    echo -e ""
+    read -p "启用 WARP 出站? [y/N]: " enable_warp
+    
+    if [[ "$enable_warp" =~ ^[Yy]$ ]]; then
+        if init_warp_config; then
+            WARP_ENABLED=true
+            echo -e "${Info} WARP 出站已启用"
+        else
+            WARP_ENABLED=false
+            echo -e "${Warning} WARP 配置失败，将使用直连出站"
+        fi
+    else
+        WARP_ENABLED=false
+    fi
+}
+
+# 获取 WARP Endpoint 配置 (检测网络环境选择最佳 Endpoint)
+get_warp_endpoint() {
+    local has_ipv4=false
+    local has_ipv6=false
+    
+    # 检测网络环境
+    curl -s4m2 https://www.cloudflare.com/cdn-cgi/trace -k 2>/dev/null | grep -q "warp" && has_ipv4=true
+    curl -s6m2 https://www.cloudflare.com/cdn-cgi/trace -k 2>/dev/null | grep -q "warp" && has_ipv6=true
+    
+    # 备用检测
+    if [ "$has_ipv4" = false ] && [ "$has_ipv6" = false ]; then
+        ip -4 route show default 2>/dev/null | grep -q default && has_ipv4=true
+        ip -6 route show default 2>/dev/null | grep -q default && has_ipv6=true
+    fi
+    
+    if [ "$has_ipv6" = true ] && [ "$has_ipv4" = false ]; then
+        # 纯 IPv6 环境
+        echo "2606:4700:d0::a29f:c001"
+    else
+        # IPv4 或双栈，使用优选 IP
+        echo "162.159.192.1"
+    fi
+}
+
+# 生成 outbounds 和 endpoints 配置
+# 参数: $1 = 是否启用 WARP (true/false)
+get_outbounds_config() {
+    local enable_warp=${1:-false}
+    
+    if [ "$enable_warp" = true ] && [ -n "$WARP_PRIVATE_KEY" ]; then
+        local warp_endpoint=$(get_warp_endpoint)
+        local warp_ipv6="${WARP_IPV6:-2606:4700:110:8f1a:c53:a4c5:2249:1546}"
+        local warp_reserved="${WARP_RESERVED:-[0,0,0]}"
+        
+        # 使用 Sing-box 1.12+ 的 endpoints 字段
+        cat << WARP_EOF
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ],
+  "endpoints": [
+    {
+      "type": "wireguard",
+      "tag": "warp-out",
+      "address": [
+        "172.16.0.2/32",
+        "${warp_ipv6}/128"
+      ],
+      "private_key": "${WARP_PRIVATE_KEY}",
+      "peers": [
+        {
+          "address": "${warp_endpoint}",
+          "port": 2408,
+          "public_key": "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=",
+          "allowed_ips": [
+            "0.0.0.0/0",
+            "::/0"
+          ],
+          "reserved": ${warp_reserved}
+        }
+      ]
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "action": "sniff"
+      },
+      {
+        "action": "resolve",
+        "strategy": "prefer_ipv4"
+      }
+    ],
+    "final": "warp-out"
+  }
+WARP_EOF
+    else
+        # 默认直连出站
+        cat << DIRECT_EOF
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ]
+DIRECT_EOF
+    fi
+}
+
 # ==================== 系统检测 ====================
 REGEX=("debian" "ubuntu" "centos|red hat|kernel|oracle linux|alma|rocky" "'amazon linux'" "fedora" "alpine")
 RELEASE=("Debian" "Ubuntu" "CentOS" "CentOS" "Fedora" "Alpine")
@@ -479,8 +729,13 @@ install_hysteria2() {
         fi
     fi
     
+    # 询问是否启用 WARP 出站
+    ask_warp_outbound
+    
     # 生成配置
     local exp_config=$(get_experimental_config)
+    local outbounds_config=$(get_outbounds_config "$WARP_ENABLED")
+    
     cat > "$SINGBOX_CONF" << EOF
 {
   "log": {
@@ -506,12 +761,7 @@ ${exp_config}  "inbounds": [
       }
     }
   ],
-  "outbounds": [
-    {
-      "type": "direct",
-      "tag": "direct"
-    }
-  ]
+${outbounds_config}
 }
 EOF
 
@@ -610,7 +860,12 @@ install_anytls() {
     
     echo -e "${Info} 证书准备完成"
     
-    # 5. 生成配置文件
+    # 5. 询问是否启用 WARP 出站
+    ask_warp_outbound
+    
+    # 6. 生成配置文件
+    local outbounds_config=$(get_outbounds_config "$WARP_ENABLED")
+    
     cat > "$SINGBOX_CONF" << EOF
 {
   "log": {
@@ -636,12 +891,7 @@ install_anytls() {
       }
     }
   ],
-  "outbounds": [
-    {
-      "type": "direct",
-      "tag": "direct"
-    }
-  ]
+${outbounds_config}
 }
 EOF
 
@@ -735,7 +985,12 @@ install_any_reality() {
         echo -e "${Info} Reality 密钥生成完成"
     fi
     
-    # 6. 生成配置文件
+    # 6. 询问是否启用 WARP 出站
+    ask_warp_outbound
+    
+    # 7. 生成配置文件
+    local outbounds_config=$(get_outbounds_config "$WARP_ENABLED")
+    
     cat > "$SINGBOX_CONF" << EOF
 {
   "log": {
@@ -769,12 +1024,7 @@ install_any_reality() {
       }
     }
   ],
-  "outbounds": [
-    {
-      "type": "direct",
-      "tag": "direct"
-    }
-  ]
+${outbounds_config}
 }
 EOF
 
@@ -837,8 +1087,13 @@ install_tuic() {
         3) congestion="new_reno" ;;
     esac
     
+    # 询问是否启用 WARP 出站
+    ask_warp_outbound
+    
     # 生成配置
     local exp_config=$(get_experimental_config)
+    local outbounds_config=$(get_outbounds_config "$WARP_ENABLED")
+    
     cat > "$SINGBOX_CONF" << EOF
 {
   "log": {
@@ -866,12 +1121,7 @@ ${exp_config}  "inbounds": [
       }
     }
   ],
-  "outbounds": [
-    {
-      "type": "direct",
-      "tag": "direct"
-    }
-  ]
+${outbounds_config}
 }
 EOF
 
@@ -946,7 +1196,12 @@ install_vless_reality() {
         echo -e "${Info} Reality 密钥生成完成"
     fi
     
+    # 询问是否启用 WARP 出站
+    ask_warp_outbound
+    
     # 生成配置
+    local outbounds_config=$(get_outbounds_config "$WARP_ENABLED")
+    
     cat > "$SINGBOX_CONF" << EOF
 {
   "log": {
@@ -980,12 +1235,7 @@ install_vless_reality() {
       }
     }
   ],
-  "outbounds": [
-    {
-      "type": "direct",
-      "tag": "direct"
-    }
-  ]
+${outbounds_config}
 }
 EOF
 
