@@ -1018,11 +1018,42 @@ install_wireproxy() {
     mkdir -p /etc/wireproxy
     
     # 读取 wgcf 生成的配置并转换为 WireProxy 格式
+    # 读取 wgcf 生成的配置并转换为 WireProxy 格式
     local private_key=$(grep "PrivateKey" "$wgcf_dir/wgcf-profile.conf" | awk '{print $3}')
     local address_v4=$(grep "Address" "$wgcf_dir/wgcf-profile.conf" | head -1 | awk '{print $3}')
     local address_v6=$(grep "Address" "$wgcf_dir/wgcf-profile.conf" | tail -1 | awk '{print $3}')
     local public_key=$(grep "PublicKey" "$wgcf_dir/wgcf-profile.conf" | awk '{print $3}')
-    local endpoint=$(grep "Endpoint" "$wgcf_dir/wgcf-profile.conf" | awk '{print $3}')
+    
+    # 优化 Endpoint 选择 (参考 yonggekkk 脚本)
+    local endpoint=""
+    
+    # 检测网络环境
+    local has_ipv4=false
+    local has_ipv6=false
+    curl -s4m2 https://www.cloudflare.com/cdn-cgi/trace -k | grep -q "warp" && has_ipv4=true
+    curl -s6m2 https://www.cloudflare.com/cdn-cgi/trace -k | grep -q "warp" && has_ipv6=true
+    
+    # 如果检测失败，尝试使用 ip route
+    if [ "$has_ipv4" = false ] && [ "$has_ipv6" = false ]; then
+        ip -4 route show default | grep -q default && has_ipv4=true
+        ip -6 route show default | grep -q default && has_ipv6=true
+    fi
+
+    if [ "$has_ipv6" = true ] && [ "$has_ipv4" = false ]; then
+        # 纯 IPv6 环境
+        echo -e "${Info} 检测到纯 IPv6 环境，使用 IPv6 Endpoint"
+        endpoint="[2606:4700:d0::a29f:c001]:2408"
+    else
+        # IPv4 或 双栈环境，使用通用域名或 IPv4 Endpoint
+        echo -e "${Info} 使用 Cloudflare 通用 Endpoint"
+        # 备选: 162.159.192.1:2408 (yonggekkk 优选)
+        # 备选: engage.cloudflareclient.com:2408 (官方域名)
+        endpoint="engage.cloudflareclient.com:2408"
+    fi
+    
+    # 如果获取不到地址，给个默认值
+    [ -z "$address_v4" ] && address_v4="172.16.0.2/32"
+    [ -z "$address_v6" ] && address_v6="2606:4700:110:8f1a:c53:a4c5:2249:1546/128"
     
     # 创建 WireProxy 配置
     cat > "$WIREPROXY_CONFIG" << WIREPROXY_EOF
