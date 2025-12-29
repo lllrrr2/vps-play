@@ -940,6 +940,55 @@ manual_config_input() {
     return 0
 }
 
+# 尝试导入本地配置
+try_import_local_config() {
+    local wgcf_dir="/tmp/wgcf_config"
+    mkdir -p "$wgcf_dir"
+    
+    local found_configs=()
+    local search_paths=(
+        "/etc/wireguard/wgcf-profile.conf"
+        "/usr/local/bin/warp.conf"
+        "/root/warp-go/warp.conf"
+        "$HOME/sing-box-yg-main/ygkkkkeys.txt"
+        "/etc/s-box/ygkkkkeys.txt"
+        "ygkkkkeys.txt"
+    )
+    
+    for path in "${search_paths[@]}"; do
+        if [ -f "$path" ]; then
+            found_configs+=("$path")
+        fi
+    done
+    
+    if [ ${#found_configs[@]} -gt 0 ]; then
+        echo -e ""
+        echo -e "${Green}检测到本地已有配置文件:${Reset}"
+        for i in "${!found_configs[@]}"; do
+            echo -e " ${Green}$((i+1)).${Reset} ${found_configs[$i]}"
+        done
+        echo -e " ${Green}0.${Reset} 不使用，切换到手动输入"
+        echo -e ""
+        
+        read -p "请选择 [0-${#found_configs[@]}]: " choice
+        
+        if [[ "$choice" =~ ^[1-9][0-9]*$ && "$choice" -le "${#found_configs[@]}" ]]; then
+            local selected="${found_configs[$((choice-1))]}"
+            echo -e "${Info} 正在导入: $selected"
+            cat "$selected" > "$wgcf_dir/wgcf-profile.conf"
+            
+            # 简单检查
+            if grep -q "PrivateKey" "$wgcf_dir/wgcf-profile.conf"; then
+                echo -e "${Info} 导入成功"
+                return 0
+            else
+                echo -e "${Error} 文件似乎不是有效的 WireGuard 配置"
+            fi
+        fi
+    fi
+    return 1
+}
+
 install_wireproxy() {
     echo -e "${Info} ===== WireProxy 安装模式 ====="
     echo -e "${Tip} 此模式适合容器环境和小内存服务器"
@@ -1015,34 +1064,57 @@ install_wireproxy() {
     if [ ! -f "$wgcf_dir/wgcf-account.toml" ]; then
         echo -e "${Error} 账户注册失败"
         echo -e ""
-        echo -e "${Tip} 自动注册遇到问题，您可以选择切换到手动输入配置模式"
-        echo -e "${Tip} 需要您在其他机器上生成 WireGuard 配置 (PrivateKey, Address 等)"
-        echo -e ""
-        read -p "切换到手动模式? [y/N]: " manual_mode
+        echo -e "${Tip} 自动注册遇到问题..."
         
-        if [[ $manual_mode =~ ^[Yy]$ ]]; then
-            manual_config_input
-            return $?
+        # 优先尝试导入本地配置
+        if try_import_local_config; then
+             echo -e "${Info} 已使用本地配置，跳过注册"
+             # 跳过后续 generate 步骤，直接去解析配置
+             # 但是我们怎么跳过 generate？
+             # 我们可以创建一个标记文件，或者重构逻辑。
+             # 简单办法：创建一个假的 wgcf-account.toml 和 wgcf-profile.conf (后者已经有了)
+             touch "$wgcf_dir/wgcf-account.toml"
         else
-            rm -rf "$wgcf_dir" "$wgcf_tmp"
-            return 1
+            echo -e "${Tip} 您可以选择切换到手动输入配置模式"
+            echo -e "${Tip} 需要您在其他机器上生成 WireGuard 配置 (PrivateKey, Address 等)"
+            echo -e ""
+            read -p "切换到手动模式? [y/N]: " manual_mode
+            
+            if [[ $manual_mode =~ ^[Yy]$ ]]; then
+                manual_config_input
+                # 如果手动输入成功，我们需要确保后续逻辑能跑通
+                # 手动输入已经创建了 wgcf-profile.conf
+                if [ $? -eq 0 ]; then
+                    touch "$wgcf_dir/wgcf-account.toml" # 标记为成功
+                else
+                    return 1
+                fi
+            else
+                rm -rf "$wgcf_dir" "$wgcf_tmp"
+                return 1
+            fi
         fi
     fi
     
-    # 生成配置
-    echo -e "${Info} 生成 WireGuard 配置..."
-    if ! "$wgcf_tmp" generate >/dev/null 2>&1; then
-        echo -e "${Error} 配置生成失败"
-        
-        # 如果生成失败，也提供手动模式
-        echo -e ""
-        read -p "切换到手动模式? [y/N]: " manual_mode
-        if [[ $manual_mode =~ ^[Yy]$ ]]; then
-            manual_config_input
-            return $?
-        else
-            rm -rf "$wgcf_dir" "$wgcf_tmp"
-            return 1
+    # 生成配置 (仅当 wgcf-profile.conf 不存在时)
+    if [ ! -f "$wgcf_dir/wgcf-profile.conf" ]; then
+        echo -e "${Info} 生成 WireGuard 配置..."
+        if ! "$wgcf_tmp" generate >/dev/null 2>&1; then
+            echo -e "${Error} 配置生成失败"
+            
+            # 如果生成失败，也提供手动模式
+            echo -e ""
+            read -p "切换到手动模式? [y/N]: " manual_mode
+            if [[ $manual_mode =~ ^[Yy]$ ]]; then
+                manual_config_input
+                if [ $? -ne 0 ]; then
+                    rm -rf "$wgcf_dir" "$wgcf_tmp"
+                    return 1
+                fi
+            else
+                rm -rf "$wgcf_dir" "$wgcf_tmp"
+                return 1
+            fi
         fi
     fi
     
