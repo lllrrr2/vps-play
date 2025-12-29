@@ -910,33 +910,81 @@ WIREPROXY_SERVICE="/etc/systemd/system/wireproxy.service"
 install_wireproxy() {
     echo -e "${Info} ===== WireProxy 安装模式 ====="
     echo -e "${Tip} 此模式适合容器环境和小内存服务器"
-    echo -e "${Tip} 不需要 WireGuard 内核模块"
+    echo -e "${Tip} 不需要 WireGuard 内核模块，创建本地 SOCKS5 代理"
     echo -e ""
     
     # 检测架构
     local arch_type="amd64"
+    local wgcf_arch="amd64"
     case "$(uname -m)" in
-        x86_64|amd64) arch_type="amd64" ;;
-        aarch64|arm64) arch_type="arm64" ;;
-        armv7l) arch_type="arm" ;;
+        x86_64|amd64) arch_type="amd64"; wgcf_arch="amd64" ;;
+        aarch64|arm64) arch_type="arm64"; wgcf_arch="arm64" ;;
+        armv7l) arch_type="arm"; wgcf_arch="armv7" ;;
     esac
     
-    # 步骤1: 获取配置
-    echo -e "${Green}步骤 1/4: 获取 WARP WireGuard 配置${Reset}"
-    echo -e ""
-    echo -e "${Tip} 请先运行以下脚本获取配置:"
-    echo -e "   ${Cyan}bash <(wget -qO- https://raw.githubusercontent.com/yonggekkk/warp-yg/main/CFwarp.sh)${Reset}"
-    echo -e ""
-    echo -e "${Tip} 在脚本菜单中依次选择: 1 -> 1 -> 1"
-    echo -e "${Tip} 然后复制输出的 WireGuard 配置"
-    echo -e ""
+    # ========== 步骤1: 下载 wgcf ==========
+    echo -e "${Green}步骤 1/4: 下载 wgcf${Reset}"
     
-    read -p "已获取配置? 按回车继续，或输入 n 取消: " got_config
-    [[ $got_config =~ ^[Nn]$ ]] && return 1
+    local wgcf_tmp="/tmp/wgcf"
+    local wgcf_url="https://github.com/ViRb3/wgcf/releases/download/v${WGCF_VERSION}/wgcf_${WGCF_VERSION}_linux_${wgcf_arch}"
     
-    # 步骤2: 下载 WireProxy
+    echo -e "${Info} 下载 wgcf v${WGCF_VERSION}..."
+    if curl -sL "$wgcf_url" -o "$wgcf_tmp" && [ -s "$wgcf_tmp" ]; then
+        chmod +x "$wgcf_tmp"
+        echo -e "${Info} wgcf 下载成功"
+    else
+        echo -e "${Error} wgcf 下载失败"
+        return 1
+    fi
+    
+    # ========== 步骤2: 注册 WARP 账户 ==========
     echo -e ""
-    echo -e "${Green}步骤 2/4: 下载 WireProxy${Reset}"
+    echo -e "${Green}步骤 2/4: 注册 WARP 账户${Reset}"
+    
+    local wgcf_dir="/tmp/wgcf_config"
+    mkdir -p "$wgcf_dir"
+    cd "$wgcf_dir"
+    
+    echo -e "${Info} 注册 WARP 账户..."
+    
+    # 注册账户 (重试5次)
+    local max_retries=5
+    local retry=0
+    while [ $retry -lt $max_retries ]; do
+        if yes | "$wgcf_tmp" register --accept-tos 2>/dev/null; then
+            echo -e "${Info} WARP 账户注册成功"
+            break
+        fi
+        retry=$((retry + 1))
+        echo -e "${Warning} 注册失败，重试 $retry/$max_retries..."
+        sleep 2
+    done
+    
+    if [ ! -f "$wgcf_dir/wgcf-account.toml" ]; then
+        echo -e "${Error} 账户注册失败"
+        rm -rf "$wgcf_dir" "$wgcf_tmp"
+        return 1
+    fi
+    
+    # 生成配置
+    echo -e "${Info} 生成 WireGuard 配置..."
+    if ! "$wgcf_tmp" generate 2>/dev/null; then
+        echo -e "${Error} 配置生成失败"
+        rm -rf "$wgcf_dir" "$wgcf_tmp"
+        return 1
+    fi
+    
+    if [ ! -f "$wgcf_dir/wgcf-profile.conf" ]; then
+        echo -e "${Error} 配置文件未生成"
+        rm -rf "$wgcf_dir" "$wgcf_tmp"
+        return 1
+    fi
+    
+    echo -e "${Info} WireGuard 配置生成成功"
+    
+    # ========== 步骤3: 下载 WireProxy ==========
+    echo -e ""
+    echo -e "${Green}步骤 3/4: 下载 WireProxy${Reset}"
     
     local wireproxy_url="https://github.com/whyvl/wireproxy/releases/download/v${WIREPROXY_VERSION}/wireproxy_linux_${arch_type}.tar.gz"
     local tmp_file="/tmp/wireproxy.tar.gz"
@@ -944,7 +992,6 @@ install_wireproxy() {
     echo -e "${Info} 下载 WireProxy v${WIREPROXY_VERSION} (${arch_type})..."
     
     if curl -sL "$wireproxy_url" -o "$tmp_file"; then
-        # 解压
         cd /tmp
         tar -xzf "$tmp_file" 2>/dev/null
         
@@ -955,37 +1002,44 @@ install_wireproxy() {
             echo -e "${Info} WireProxy 安装成功"
         else
             echo -e "${Error} 解压失败"
+            rm -rf "$wgcf_dir" "$wgcf_tmp"
             return 1
         fi
     else
         echo -e "${Error} 下载失败"
-        echo -e "${Tip} 请手动下载: $wireproxy_url"
+        rm -rf "$wgcf_dir" "$wgcf_tmp"
         return 1
     fi
     
-    # 步骤3: 配置
+    # ========== 步骤4: 创建配置和服务 ==========
     echo -e ""
-    echo -e "${Green}步骤 3/4: 创建配置文件${Reset}"
+    echo -e "${Green}步骤 4/4: 创建配置和服务${Reset}"
     
     mkdir -p /etc/wireproxy
     
-    echo -e "${Tip} 请粘贴 WireGuard 配置内容 (粘贴完成后输入 EOF 并回车):"
-    echo -e ""
+    # 读取 wgcf 生成的配置并转换为 WireProxy 格式
+    local private_key=$(grep "PrivateKey" "$wgcf_dir/wgcf-profile.conf" | awk '{print $3}')
+    local address_v4=$(grep "Address" "$wgcf_dir/wgcf-profile.conf" | head -1 | awk '{print $3}')
+    local address_v6=$(grep "Address" "$wgcf_dir/wgcf-profile.conf" | tail -1 | awk '{print $3}')
+    local public_key=$(grep "PublicKey" "$wgcf_dir/wgcf-profile.conf" | awk '{print $3}')
+    local endpoint=$(grep "Endpoint" "$wgcf_dir/wgcf-profile.conf" | awk '{print $3}')
     
-    local config_content=""
-    while IFS= read -r line; do
-        [[ "$line" == "EOF" ]] && break
-        config_content+="$line"$'\n'
-    done
-    
-    if [ -z "$config_content" ]; then
-        echo -e "${Error} 配置内容为空"
-        return 1
-    fi
-    
-    # 添加 SOCKS5 配置
+    # 创建 WireProxy 配置
     cat > "$WIREPROXY_CONFIG" << WIREPROXY_EOF
-${config_content}
+[Interface]
+PrivateKey = ${private_key}
+Address = ${address_v4}
+Address = ${address_v6}
+DNS = 1.1.1.1
+DNS = 2606:4700:4700::1111
+MTU = 1280
+
+[Peer]
+PublicKey = ${public_key}
+AllowedIPs = 0.0.0.0/0
+AllowedIPs = ::/0
+Endpoint = ${endpoint}
+
 # SOCKS5 代理配置
 [Socks5]
 BindAddress = 127.0.0.1:1080
@@ -993,10 +1047,7 @@ WIREPROXY_EOF
     
     echo -e "${Info} 配置文件已创建: $WIREPROXY_CONFIG"
     
-    # 步骤4: 创建系统服务
-    echo -e ""
-    echo -e "${Green}步骤 4/4: 创建系统服务${Reset}"
-    
+    # 创建 systemd 服务
     cat > "$WIREPROXY_SERVICE" << SERVICE_EOF
 [Unit]
 Description=WireProxy SOCKS5 Client
@@ -1016,6 +1067,9 @@ SERVICE_EOF
     systemctl enable wireproxy 2>/dev/null
     systemctl start wireproxy
     
+    # 清理临时文件
+    rm -rf "$wgcf_dir" "$wgcf_tmp"
+    
     sleep 2
     
     # 验证
@@ -1025,13 +1079,14 @@ SERVICE_EOF
         # 测试代理
         echo -e ""
         echo -e "${Info} 测试代理连接..."
-        local test_ip=$(curl -sx socks5h://127.0.0.1:1080 ip.sb 2>/dev/null)
+        sleep 3
+        local test_ip=$(curl -sx socks5h://127.0.0.1:1080 ip.sb --connect-timeout 10 2>/dev/null)
         
         if [ -n "$test_ip" ]; then
             echo -e "${Info} 代理测试成功!"
             echo -e "${Info} 出口 IP: ${Cyan}${test_ip}${Reset}"
         else
-            echo -e "${Warning} 代理测试失败，可能需要等待几秒后重试"
+            echo -e "${Warning} 代理测试暂未成功，可能需要等待几秒"
             echo -e "${Tip} 手动测试: curl -x socks5h://127.0.0.1:1080 ip.sb"
         fi
     else
