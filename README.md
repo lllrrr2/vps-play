@@ -69,7 +69,7 @@
 ### 一键运行 (推荐)
 
 ```bash
-# 一键安装并运行 (自动检测，未安装则安装，然后运行)
+# 一键安装并运行 (总是重新安装最新版本)
 bash <(curl -Ls https://raw.githubusercontent.com/hxzlplp7/vps-play/main/start.sh)
 
 # 或使用 wget
@@ -79,14 +79,13 @@ bash <(wget -qO- https://raw.githubusercontent.com/hxzlplp7/vps-play/main/start.
 ### 其他选项
 
 ```bash
+# 仅运行 (不重新安装，使用已安装版本)
+vps-play
+# 或
+bash <(curl -Ls ...) --run
+
 # 仅安装，不运行
 bash <(curl -Ls https://raw.githubusercontent.com/hxzlplp7/vps-play/main/start.sh) --install
-
-# 仅运行 (已安装后可直接使用)
-vps-play
-
-# 更新脚本 (在菜单中选择 20，或重新运行一键命令)
-bash <(curl -Ls https://raw.githubusercontent.com/hxzlplp7/vps-play/main/start.sh)
 
 # 卸载
 bash <(curl -Ls https://raw.githubusercontent.com/hxzlplp7/vps-play/main/start.sh) --uninstall

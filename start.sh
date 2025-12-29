@@ -5,9 +5,10 @@
 #
 # 使用方法:
 #   一键运行: bash <(curl -Ls https://raw.githubusercontent.com/hxzlplp7/vps-play/main/start.sh)
-#   仅安装:   bash <(curl -Ls https://raw.githubusercontent.com/hxzlplp7/vps-play/main/start.sh) --install
-#   仅运行:   bash <(curl -Ls https://raw.githubusercontent.com/hxzlplp7/vps-play/main/start.sh) --run
-#   卸载:     bash <(curl -Ls https://raw.githubusercontent.com/hxzlplp7/vps-play/main/start.sh) --uninstall
+#             (总是重新安装最新版本并运行)
+#   仅运行:   bash <(curl -Ls ...) --run  或  vps-play
+#   仅安装:   bash <(curl -Ls ...) --install
+#   卸载:     bash <(curl -Ls ...) --uninstall
 #
 # Copyright (C) 2025 VPS-play Contributors
 #
@@ -206,23 +207,24 @@ if [ "$ACTION" = "uninstall" ]; then
     online_uninstall
 fi
 
-# 如果强制安装或未安装
-if [ "$ACTION" = "install" ] || ! is_installed; then
+# 如果指定 --run，只运行不安装
+if [ "$ACTION" = "run" ]; then
+    if ! is_installed; then
+        echo -e "\033[31m[错误]\033[0m VPS-play 未安装"
+        echo -e "\033[36m[提示]\033[0m 请先运行: bash <(curl -Ls ${REPO_RAW}/start.sh)"
+        exit 1
+    fi
+    # 跳过安装，直接运行
+else
+    # 默认行为：总是重新安装（覆盖旧版本）
     online_install
     
-    # 如果只是安装，不继续运行
+    # 如果只是安装模式，不继续运行
     if [ "$ACTION" = "install" ]; then
         echo -e "\033[33m快捷命令:\033[0m vps-play"
         echo -e "\033[33m或运行:\033[0m bash ~/vps-play/start.sh"
         exit 0
     fi
-fi
-
-# 如果指定 --run 但未安装
-if [ "$ACTION" = "run" ] && ! is_installed; then
-    echo -e "\033[31m[错误]\033[0m VPS-play 未安装"
-    echo -e "\033[36m[提示]\033[0m 请先运行: bash <(curl -Ls ${REPO_RAW}/start.sh)"
-    exit 1
 fi
 
 # ==================== 初始化 ====================
