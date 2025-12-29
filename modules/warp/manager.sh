@@ -989,13 +989,100 @@ try_import_local_config() {
     return 1
 }
 
+use_warp_go() {
+    local wgcf_dir="/tmp/wgcf_config"
+    mkdir -p "$wgcf_dir"
+    cd "$wgcf_dir"
+
+    local arch=$(uname -m)
+    local warp_go_url=""
+    local filename="warp-go"
+    
+    case "$arch" in
+        x86_64) warp_go_url="https://github.com/ProjectWARP/warp-go/releases/latest/download/warp-go_linux_amd64.tar.gz" ;;
+        aarch64) warp_go_url="https://github.com/ProjectWARP/warp-go/releases/latest/download/warp-go_linux_arm64.tar.gz" ;;
+        *) echo -e "${Error} warp-go 不支持此架构: $arch"; return 1 ;;
+    esac
+
+    echo -e "${Info} 下载 warp-go..."
+    # 尝试下载并解压，如果失败尝试备用
+    if curl -L "$warp_go_url" -o warp-go.tar.gz; then
+        tar -xzf warp-go.tar.gz 2>/dev/null || true
+        if [ ! -f "warp-go" ]; then
+             # 尝试直接下载二进制的备用源（引用 yonggekkk 的源，通常更稳）
+             local alt_arch="amd64"
+             [[ "$arch" == "aarch64" ]] && alt_arch="arm64"
+             curl -L "https://gitlab.com/rwkgyg/warp-go/-/raw/main/warp-go_linux_${alt_arch}" -o warp-go
+        fi
+    fi
+    
+    if [ ! -f "warp-go" ]; then
+         echo -e "${Error} warp-go 下载失败"
+         return 1
+    fi
+    
+    chmod +x warp-go
+
+    echo -e "${Info} 注册 WARP 账户 (warp-go)..."
+    ./warp-go --register --accept-tos
+    
+    if [ ! -f "warp.conf" ]; then
+        echo -e "${Error} warp-go 注册失败，尝试备用命令..."
+        ./warp-go register
+    fi
+    
+    if [ -f "warp.conf" ]; then
+        echo -e "${Info} 注册成功"
+        cp warp.conf wgcf-profile.conf
+        touch wgcf-account.toml # 标记成功
+        return 0
+    else
+        echo -e "${Error} 注册失败"
+        return 1
+    fi
+}
+
 install_wireproxy() {
     echo -e "${Info} ===== WireProxy 安装模式 ====="
     echo -e "${Tip} 此模式适合容器环境和小内存服务器"
     echo -e "${Tip} 不需要 WireGuard 内核模块，创建本地 SOCKS5 代理"
     echo -e ""
     
-    # 检测架构
+    # 菜单选择
+    echo -e "${Green}请选择 WARP 账户注册/配置生成方式:${Reset}"
+    echo -e " 1. 使用 wgcf 自动注册 (默认)"
+    echo -e " 2. 使用 warp-go 自动注册 (推荐, 成功率更高)"
+    echo -e " 3. 导入本地配置文件 / 手动输入"
+    read -p "请选择 [1-3]: " config_mode
+    
+    local wgcf_dir="/tmp/wgcf_config"
+    rm -rf "$wgcf_dir"
+    mkdir -p "$wgcf_dir"
+    
+    local config_success=false
+    
+    case "$config_mode" in
+        2)
+            if use_warp_go; then
+                config_success=true
+            else
+                echo -e "${Warning} warp-go 失败，尝试 fallback 到 wgcf..."
+            fi
+            ;;
+        3)
+            if try_import_local_config; then
+                config_success=true
+                touch "$wgcf_dir/wgcf-account.toml"
+            else
+                if manual_config_input; then
+                     config_success=true
+                     touch "$wgcf_dir/wgcf-account.toml"
+                fi
+            fi
+            ;;
+    esac
+    
+    # 检测架构 (仅用于 wgcf 如果需要)
     local arch_type="amd64"
     local wgcf_arch="amd64"
     case "$(uname -m)" in
@@ -1004,116 +1091,101 @@ install_wireproxy() {
         armv7l) arch_type="arm"; wgcf_arch="armv7" ;;
     esac
     
-    # ========== 步骤1: 下载 wgcf ==========
-    echo -e "${Green}步骤 1/4: 下载 wgcf${Reset}"
-    
-    local wgcf_tmp="/tmp/wgcf"
-    local wgcf_url="https://github.com/ViRb3/wgcf/releases/download/v${WGCF_VERSION}/wgcf_${WGCF_VERSION}_linux_${wgcf_arch}"
-    
-    echo -e "${Info} 下载 wgcf v${WGCF_VERSION}..."
-    if curl -sL "$wgcf_url" -o "$wgcf_tmp" && [ -s "$wgcf_tmp" ]; then
-        chmod +x "$wgcf_tmp"
-        echo -e "${Info} wgcf 下载成功"
-    else
-        echo -e "${Error} wgcf 下载失败"
-        return 1
-    fi
-    
-    # ========== 步骤2: 注册 WARP 账户 ==========
-    echo -e ""
-    echo -e "${Green}步骤 2/4: 注册 WARP 账户${Reset}"
-    
-    local wgcf_dir="/tmp/wgcf_config"
-    rm -rf "$wgcf_dir"  # 清理旧数据，防止残留干扰
-    mkdir -p "$wgcf_dir"
-    cd "$wgcf_dir"
-    
-    echo -e "${Info} 注册 WARP 账户..."
-    
-    # 注册账户 (重试5次)
-    local max_retries=5
-    local retry=0
-    local log_file="/tmp/wgcf_register.log"
-    
-    while [ $retry -lt $max_retries ]; do
-        # 使用临时文件记录日志，避免管道导致的问题
-        yes | "$wgcf_tmp" register --accept-tos > "$log_file" 2>&1
+    # 如果尚未获取配置，则走 wgcf 流程
+    if [ "$config_success" = false ]; then
+        # ========== 步骤1: 下载 wgcf ==========
+        echo -e "${Green}步骤 1: 下载 wgcf${Reset}"
         
-        if [ $? -eq 0 ]; then
-            echo -e "${Info} WARP 账户注册成功"
-            break
-        fi
+        local wgcf_tmp="/tmp/wgcf"
+        local wgcf_url="https://github.com/ViRb3/wgcf/releases/download/v${WGCF_VERSION}/wgcf_${WGCF_VERSION}_linux_${wgcf_arch}"
         
-        retry=$((retry + 1))
-        echo -e "${Warning} 注册失败，重试 $retry/$max_retries..."
-        
-        # 显示关键错误信息
-        if grep -q "429" "$log_file"; then
-            echo -e "${Yellow} 原因: 请求过多 (HTTP 429)，等待 5 秒...${Reset}"
-            sleep 5
-        elif grep -q "network" "$log_file"; then
-            echo -e "${Yellow} 原因: 网络连接失败${Reset}"
-            sleep 2
+        echo -e "${Info} 下载 wgcf v${WGCF_VERSION}..."
+        if curl -sL "$wgcf_url" -o "$wgcf_tmp" && [ -s "$wgcf_tmp" ]; then
+            chmod +x "$wgcf_tmp"
+            echo -e "${Info} wgcf 下载成功"
         else
-            local err_msg=$(tail -n 1 "$log_file")
-            echo -e "${Yellow} 错误详情: ${err_msg}${Reset}"
-            sleep 2
-        fi
-    done
-    
-    if [ ! -f "$wgcf_dir/wgcf-account.toml" ]; then
-        echo -e "${Error} 账户注册失败"
-        echo -e ""
-        echo -e "${Tip} 自动注册遇到问题..."
-        
-        # 优先尝试导入本地配置
-        if try_import_local_config; then
-             echo -e "${Info} 已使用本地配置，跳过注册"
-             # 跳过后续 generate 步骤，直接去解析配置
-             # 但是我们怎么跳过 generate？
-             # 我们可以创建一个标记文件，或者重构逻辑。
-             # 简单办法：创建一个假的 wgcf-account.toml 和 wgcf-profile.conf (后者已经有了)
-             touch "$wgcf_dir/wgcf-account.toml"
-        else
-            echo -e "${Tip} 您可以选择切换到手动输入配置模式"
-            echo -e "${Tip} 需要您在其他机器上生成 WireGuard 配置 (PrivateKey, Address 等)"
-            echo -e ""
-            read -p "切换到手动模式? [y/N]: " manual_mode
-            
-            if [[ $manual_mode =~ ^[Yy]$ ]]; then
-                manual_config_input
-                # 如果手动输入成功，我们需要确保后续逻辑能跑通
-                # 手动输入已经创建了 wgcf-profile.conf
-                if [ $? -eq 0 ]; then
-                    touch "$wgcf_dir/wgcf-account.toml" # 标记为成功
-                else
-                    return 1
-                fi
+            echo -e "${Error} wgcf 下载失败"
+            # 失败后再次给手动机会
+             if try_import_local_config; then
+                config_success=true
+                touch "$wgcf_dir/wgcf-account.toml"
+            elif manual_config_input; then
+                 config_success=true
+                 touch "$wgcf_dir/wgcf-account.toml"
             else
-                rm -rf "$wgcf_dir" "$wgcf_tmp"
                 return 1
             fi
         fi
     fi
     
-    # 生成配置 (仅当 wgcf-profile.conf 不存在时)
-    if [ ! -f "$wgcf_dir/wgcf-profile.conf" ]; then
-        echo -e "${Info} 生成 WireGuard 配置..."
-        if ! "$wgcf_tmp" generate >/dev/null 2>&1; then
-            echo -e "${Error} 配置生成失败"
+    if [ "$config_success" = false ]; then
+        # ========== 步骤2: 注册 WARP 账户 ==========
+        echo -e ""
+        echo -e "${Green}步骤 2: 注册 WARP 账户${Reset}"
+        
+        local wgcf_dir="/tmp/wgcf_config"
+        mkdir -p "$wgcf_dir"
+        cd "$wgcf_dir"
+        
+        echo -e "${Info} 注册 WARP 账户..."
+        
+        # 注册账户 (重试5次)
+        local max_retries=5
+        local retry=0
+        local log_file="/tmp/wgcf_register.log"
+        
+        while [ $retry -lt $max_retries ]; do
+            # 使用临时文件记录日志，避免管道导致的问题
+            yes | "$wgcf_tmp" register --accept-tos > "$log_file" 2>&1
             
-            # 如果生成失败，也提供手动模式
-            echo -e ""
-            read -p "切换到手动模式? [y/N]: " manual_mode
-            if [[ $manual_mode =~ ^[Yy]$ ]]; then
-                manual_config_input
-                if [ $? -ne 0 ]; then
-                    rm -rf "$wgcf_dir" "$wgcf_tmp"
-                    return 1
-                fi
+            if [ $? -eq 0 ]; then
+                echo -e "${Info} WARP 账户注册成功"
+                break
+            fi
+            
+            retry=$((retry + 1))
+            echo -e "${Warning} 注册失败，重试 $retry/$max_retries..."
+            
+            # 显示关键错误信息
+            if grep -q "429" "$log_file"; then
+                echo -e "${Yellow} 原因: 请求过多 (HTTP 429)，等待 5 秒...${Reset}"
+                sleep 5
+            elif grep -q "network" "$log_file"; then
+                echo -e "${Yellow} 原因: 网络连接失败${Reset}"
+                sleep 2
+            else
+                local err_msg=$(tail -n 1 "$log_file")
+                echo -e "${Yellow} 错误详情: ${err_msg}${Reset}"
+                sleep 2
+            fi
+        done
+        
+        if [ ! -f "$wgcf_dir/wgcf-account.toml" ]; then
+            echo -e "${Error} 账户注册失败"
+            
+            # 优先尝试导入本地配置
+            if try_import_local_config; then
+                 config_success=true
+                 touch "$wgcf_dir/wgcf-account.toml"
+            elif manual_config_input; then
+                 config_success=true
+                 touch "$wgcf_dir/wgcf-account.toml"
             else
                 rm -rf "$wgcf_dir" "$wgcf_tmp"
                 return 1
+            fi
+        fi
+        
+        # 生成配置
+        if [ "$config_success" = false ] && [ ! -f "$wgcf_dir/wgcf-profile.conf" ]; then
+            echo -e "${Info} 生成 WireGuard 配置..."
+            if ! "$wgcf_tmp" generate >/dev/null 2>&1; then
+                echo -e "${Error} 配置生成失败"
+                if manual_config_input; then
+                     config_success=true
+                else
+                    return 1
+                fi
             fi
         fi
     fi
