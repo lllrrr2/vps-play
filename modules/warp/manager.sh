@@ -907,6 +907,39 @@ WIREPROXY_BIN="/usr/local/bin/wireproxy"
 WIREPROXY_CONFIG="/etc/wireproxy/config.toml"
 WIREPROXY_SERVICE="/etc/systemd/system/wireproxy.service"
 
+# 手动输入配置
+manual_config_input() {
+    local wgcf_dir="/tmp/wgcf_config"
+    mkdir -p "$wgcf_dir"
+    
+    echo -e ""
+    echo -e "${Info} ===== 手动配置模式 ====="
+    echo -e "${Tip} 请粘贴 WireGuard 配置内容 (粘贴完成后输入 EOF 并回车):"
+    echo -e "${Tip} 格式示例:"
+    echo -e " [Interface]"
+    echo -e " PrivateKey = ..."
+    echo -e " Address = ..."
+    echo -e " [Peer]"
+    echo -e " PublicKey = ..."
+    echo -e " Endpoint = ..."
+    echo -e ""
+    
+    local config_content=""
+    while IFS= read -r line; do
+        [[ "$line" == "EOF" ]] && break
+        config_content+="$line"$'\n'
+    done
+    
+    if [ -z "$config_content" ]; then
+        echo -e "${Error} 配置内容为空"
+        return 1
+    fi
+    
+    echo "$config_content" > "$wgcf_dir/wgcf-profile.conf"
+    echo -e "${Info} 配置已保存"
+    return 0
+}
+
 install_wireproxy() {
     echo -e "${Info} ===== WireProxy 安装模式 ====="
     echo -e "${Tip} 此模式适合容器环境和小内存服务器"
@@ -981,16 +1014,36 @@ install_wireproxy() {
     
     if [ ! -f "$wgcf_dir/wgcf-account.toml" ]; then
         echo -e "${Error} 账户注册失败"
-        rm -rf "$wgcf_dir" "$wgcf_tmp"
-        return 1
+        echo -e ""
+        echo -e "${Tip} 自动注册遇到问题，您可以选择切换到手动输入配置模式"
+        echo -e "${Tip} 需要您在其他机器上生成 WireGuard 配置 (PrivateKey, Address 等)"
+        echo -e ""
+        read -p "切换到手动模式? [y/N]: " manual_mode
+        
+        if [[ $manual_mode =~ ^[Yy]$ ]]; then
+            manual_config_input
+            return $?
+        else
+            rm -rf "$wgcf_dir" "$wgcf_tmp"
+            return 1
+        fi
     fi
     
     # 生成配置
     echo -e "${Info} 生成 WireGuard 配置..."
-    if ! "$wgcf_tmp" generate 2>/dev/null; then
+    if ! "$wgcf_tmp" generate >/dev/null 2>&1; then
         echo -e "${Error} 配置生成失败"
-        rm -rf "$wgcf_dir" "$wgcf_tmp"
-        return 1
+        
+        # 如果生成失败，也提供手动模式
+        echo -e ""
+        read -p "切换到手动模式? [y/N]: " manual_mode
+        if [[ $manual_mode =~ ^[Yy]$ ]]; then
+            manual_config_input
+            return $?
+        else
+            rm -rf "$wgcf_dir" "$wgcf_tmp"
+            return 1
+        fi
     fi
     
     if [ ! -f "$wgcf_dir/wgcf-profile.conf" ]; then
