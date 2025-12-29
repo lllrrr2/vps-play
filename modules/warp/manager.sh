@@ -914,7 +914,7 @@ manual_config_input() {
     
     echo -e ""
     echo -e "${Info} ===== 手动配置模式 ====="
-    echo -e "${Tip} 请粘贴 WireGuard 配置内容 (粘贴完成后输入 EOF 并回车):"
+    echo -e "${Tip} 请粘贴 WireGuard 配置内容 (粘贴完成后，新起一行输入 EOF 并回车):"
     echo -e "${Tip} 格式示例:"
     echo -e " [Interface]"
     echo -e " PrivateKey = ..."
@@ -926,7 +926,12 @@ manual_config_input() {
     
     local config_content=""
     while IFS= read -r line; do
-        [[ "$line" == "EOF" ]] && break
+        # 移除回车符 (兼容 Windows 粘贴)
+        line=${line//$'\r'/}
+        # 忽略大小写检查 EOF
+        if [[ "${line^^}" == "EOF" ]]; then
+            break
+        fi
         config_content+="$line"$'\n'
     done
     
