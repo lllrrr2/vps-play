@@ -997,27 +997,51 @@ use_warp_go() {
     local arch=$(uname -m)
     local warp_go_url=""
     local filename="warp-go"
+    # 使用固定版本以提高稳定性
+    local warp_go_version="v1.0.8"
     
     case "$arch" in
-        x86_64) warp_go_url="https://github.com/ProjectWARP/warp-go/releases/latest/download/warp-go_linux_amd64.tar.gz" ;;
-        aarch64) warp_go_url="https://github.com/ProjectWARP/warp-go/releases/latest/download/warp-go_linux_arm64.tar.gz" ;;
+        x86_64) warp_go_url="https://github.com/ProjectWARP/warp-go/releases/download/${warp_go_version}/warp-go_${warp_go_version}_linux_amd64.tar.gz" ;;
+        aarch64) warp_go_url="https://github.com/ProjectWARP/warp-go/releases/download/${warp_go_version}/warp-go_${warp_go_version}_linux_arm64.tar.gz" ;;
         *) echo -e "${Error} warp-go 不支持此架构: $arch"; return 1 ;;
     esac
 
-    echo -e "${Info} 下载 warp-go..."
-    # 尝试下载并解压，如果失败尝试备用
-    if curl -L "$warp_go_url" -o warp-go.tar.gz; then
-        tar -xzf warp-go.tar.gz 2>/dev/null || true
-        if [ ! -f "warp-go" ]; then
-             # 尝试直接下载二进制的备用源（引用 yonggekkk 的源，通常更稳）
-             local alt_arch="amd64"
-             [[ "$arch" == "aarch64" ]] && alt_arch="arm64"
-             curl -L "https://gitlab.com/rwkgyg/warp-go/-/raw/main/warp-go_linux_${alt_arch}" -o warp-go
+    echo -e "${Info} 下载 warp-go (${warp_go_version})..."
+    
+    # 定义下载并检查函数
+    download_and_check() {
+        local url="$1"
+        rm -f warp-go.tar.gz warp-go
+        if curl -L -f --connect-timeout 10 --retry 3 "$url" -o warp-go.tar.gz; then
+            # 检查是否为 HTML (GitLab/Cloudflare 拦截页面)
+            if head -n 1 warp-go.tar.gz | grep -q "<!DOCTYPE html>"; then
+                echo -e "${Warning} 下载链接被拦截或无效 (检测到 HTML 内容)"
+                rm -f warp-go.tar.gz
+                return 1
+            fi
+            return 0
+        fi
+        return 1
+    }
+
+    # 尝试 1: GitHub Release
+    if ! download_and_check "$warp_go_url"; then
+        echo -e "${Warning} GitHub 下载失败，尝试备用源..."
+        # 尝试 2: 使用 ghproxy 加速 (如果可用)
+        local proxy_url="https://mirror.ghproxy.com/${warp_go_url}"
+        if ! download_and_check "$proxy_url"; then
+             echo -e "${Error} warp-go 下载失败"
+             return 1
         fi
     fi
     
+    # 解压
+    tar -xzf warp-go.tar.gz 2>/dev/null || true
     if [ ! -f "warp-go" ]; then
-         echo -e "${Error} warp-go 下载失败"
+         # 如果 tar 解压失败，检查是否直接下载了二进制 (某些源可能提供二进制)
+         # 但上面的链接是确定的 tar.gz。
+         echo -e "${Error} 解压失败或文件损坏"
+         rm -f warp-go.tar.gz
          return 1
     fi
     
