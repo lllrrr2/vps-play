@@ -731,6 +731,15 @@ generate_warp_singbox_config() {
     
     echo -e "${Info} 使用 Endpoint: ${Cyan}${ep_ip}:${ep_port}${Reset}"
     
+    # 检测可用端口 (从 1080 开始)
+    local socks_port=1080
+    while netstat -tuln 2>/dev/null | grep -q ":${socks_port} "; do
+        ((socks_port++))
+    done
+    
+    echo -e "${Info} 本地 Socks5 端口: ${Green}${socks_port}${Reset}"
+    echo "$socks_port" > "$WARP_DATA_DIR/socks_port"
+    
     # 生成配置 (sing-box 1.12+ endpoints 格式)
     cat > "$SINGBOX_CONF" << EOF
 {
@@ -752,7 +761,7 @@ generate_warp_singbox_config() {
       "type": "mixed",
       "tag": "mixed-in",
       "listen": "127.0.0.1",
-      "listen_port": 1080
+      "listen_port": ${socks_port}
     },
     {
       "type": "tun",
@@ -958,25 +967,33 @@ quick_install() {
     
     echo -e ""
     echo -e "${Green}========== WARP 安装完成 ==========${Reset}"
+    # 获取实际使用的端口
+    local socks_port=1080
+    if [ -f "$WARP_DATA_DIR/socks_port" ]; then
+        socks_port=$(cat "$WARP_DATA_DIR/socks_port")
+    fi
+    
     echo -e ""
-    echo -e " ${Cyan}本地代理:${Reset} socks5://127.0.0.1:1080"
+    echo -e "${Green}========== WARP 安装完成 ==========${Reset}"
+    echo -e ""
+    echo -e " ${Cyan}本地代理:${Reset} socks5://127.0.0.1:${socks_port}"
     echo -e " ${Cyan}配置文件:${Reset} $SINGBOX_CONF"
     echo -e ""
     echo -e "${Tip} 使用方法:"
-    echo -e "   curl -x socks5h://127.0.0.1:1080 ip.sb"
+    echo -e "   curl -x socks5h://127.0.0.1:${socks_port} ip.sb"
     echo -e ""
     
     # 验证
     echo -e "${Info} 验证 WARP 连接..."
     sleep 3
-    local test_ip=$(curl -sx socks5h://127.0.0.1:1080 ip.sb --connect-timeout 10 2>/dev/null)
+    local test_ip=$(curl -sx socks5h://127.0.0.1:${socks_port} ip.sb --connect-timeout 10 2>/dev/null)
     
     if [ -n "$test_ip" ]; then
         echo -e "${Info} WARP 出口 IP: ${Cyan}$test_ip${Reset}"
         echo -e "${Info} 安装成功!"
     else
         echo -e "${Warning} WARP 代理测试未通过，可能需要几秒钟才能就绪"
-        echo -e "${Tip} 手动测试: curl -x socks5h://127.0.0.1:1080 ip.sb"
+        echo -e "${Tip} 手动测试: curl -x socks5h://127.0.0.1:${socks_port} ip.sb"
     fi
 }
 
@@ -1006,9 +1023,14 @@ check_streaming() {
     echo -e ""
     
     local proxy_opt=""
+    local socks_port=1080
+    if [ -f "$WARP_DATA_DIR/socks_port" ]; then
+        socks_port=$(cat "$WARP_DATA_DIR/socks_port")
+    fi
+    
     if pgrep -f "sing-box" >/dev/null 2>&1; then
-        proxy_opt="-x socks5h://127.0.0.1:1080"
-        echo -e "${Info} 使用 WARP 代理进行检测"
+        proxy_opt="-x socks5h://127.0.0.1:${socks_port}"
+        echo -e "${Info} 使用 WARP 代理进行检测 (端口: ${socks_port})"
     else
         echo -e "${Warning} WARP 未运行，使用直连检测"
     fi
@@ -1062,7 +1084,71 @@ view_logs() {
     
     echo -e "${Info} 最近 50 行日志:"
     echo -e ""
-    tail -50 "$log_file"
+# ==================== 辅助函数 ====================
+# 安装 jq 工具
+install_jq() {
+    if command -v jq &>/dev/null; then
+        return 0
+    fi
+    
+    echo -e "${Info} 正在安装 jq..."
+    
+    # 尝试系统包管理器
+    if command -v apt-get &>/dev/null; then
+        apt-get update -qq && apt-get install -y -qq jq 2>/dev/null
+    elif command -v yum &>/dev/null; then
+        yum install -y -q jq 2>/dev/null
+    elif command -v apk &>/dev/null; then
+        apk add --quiet jq 2>/dev/null
+    elif command -v pkg &>/dev/null; then
+        pkg install -y jq 2>/dev/null
+    fi
+    
+    if command -v jq &>/dev/null; then
+        return 0
+    fi
+    
+    # 尝试下载静态二进制文件
+    echo -e "${Info} 系统安装失败，尝试下载 jq 二进制文件..."
+    local jq_url=""
+    local arch=$(uname -m)
+    case "$arch" in
+        x86_64|amd64) jq_url="https://github.com/jqlang/jq/releases/latest/download/jq-linux-amd64" ;;
+        aarch64|arm64) jq_url="https://github.com/jqlang/jq/releases/latest/download/jq-linux-arm64" ;;
+        *) 
+            echo -e "${Warning} 不支持的架构: $arch"
+            return 1 
+            ;;
+    esac
+    
+    # 使用 ghproxy 加速
+    local download_urls=(
+        "https://mirror.ghproxy.com/$jq_url"
+        "$jq_url"
+    )
+    
+    for url in "${download_urls[@]}"; do
+        if curl -sL "$url" -o "/usr/local/bin/jq" 2>/dev/null; then
+            chmod +x "/usr/local/bin/jq"
+            if command -v jq &>/dev/null; then
+                echo -e "${Info} jq 安装成功"
+                return 0
+            fi
+        fi
+    done
+    
+    # 尝试安装到当前目录
+    if curl -sL "${download_urls[0]}" -o "./jq" 2>/dev/null; then
+        chmod +x "./jq"
+        export PATH="$PATH:$(pwd)"
+        if command -v jq &>/dev/null; then
+             echo -e "${Info} jq 安装成功 (当前目录)"
+             return 0
+        fi
+    fi
+    
+    echo -e "${Error} jq 安装失败"
+    return 1
 }
 
 # ==================== 为现有节点配置 WARP 出站 ====================
@@ -1146,19 +1232,8 @@ add_warp_outbound_singbox() {
     
     echo -e "${Info} WARP Endpoint: ${Cyan}${ep_ip}:${ep_port}${Reset}"
     
-    # 尝试安装 jq (如果不存在)
-    if ! command -v jq &>/dev/null; then
-        echo -e "${Info} 尝试安装 jq..."
-        if command -v apt-get &>/dev/null; then
-            apt-get update -qq && apt-get install -y -qq jq 2>/dev/null
-        elif command -v yum &>/dev/null; then
-            yum install -y -q jq 2>/dev/null
-        elif command -v apk &>/dev/null; then
-            apk add --quiet jq 2>/dev/null
-        elif command -v pkg &>/dev/null; then
-            pkg install -y jq 2>/dev/null
-        fi
-    fi
+    # 尝试安装 jq
+    install_jq
     
     # 使用 jq 修改配置 (如果可用)
     if command -v jq &>/dev/null; then
@@ -1393,19 +1468,8 @@ add_warp_outbound_xray() {
     
     echo -e "${Info} WARP Endpoint: ${Cyan}${ep_ip}:${ep_port}${Reset}"
     
-    # 尝试安装 jq (如果不存在)
-    if ! command -v jq &>/dev/null; then
-        echo -e "${Info} 尝试安装 jq..."
-        if command -v apt-get &>/dev/null; then
-            apt-get update -qq && apt-get install -y -qq jq 2>/dev/null
-        elif command -v yum &>/dev/null; then
-            yum install -y -q jq 2>/dev/null
-        elif command -v apk &>/dev/null; then
-            apk add --quiet jq 2>/dev/null
-        elif command -v pkg &>/dev/null; then
-            pkg install -y jq 2>/dev/null
-        fi
-    fi
+    # 尝试安装 jq
+    install_jq
     
     # 使用 jq 修改配置
     if command -v jq &>/dev/null; then
