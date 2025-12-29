@@ -935,9 +935,44 @@ manual_config_input() {
         return 1
     fi
     
-    echo "$config_content" > "$wgcf_dir/wgcf-profile.conf"
-    echo -e "${Info} 配置已保存"
-    return 0
+    # 智能识别配置类型
+    if echo "$config_content" | grep -q "\[Interface\]"; then
+        # 情况 1: 完整的 WireGuard 配置
+        echo "$config_content" > "$wgcf_dir/wgcf-profile.conf"
+        echo -e "${Info} 识别为 WireGuard 配置，已保存"
+        return 0
+    elif echo "$config_content" | grep -q "access_token" && echo "$config_content" | grep -q "private_key"; then
+        # 情况 2: wgcf-account.toml 内容
+        echo -e "${Info} 识别为 WARP 账户信息 (wgcf-account.toml)"
+        echo "$config_content" > "$wgcf_dir/wgcf-account.toml"
+        
+        # 尝试使用 wgcf 生成配置
+        # 注意: 此时 wgcf 二进制文件应该已经在 /tmp/wgcf (因为是在 install_wireproxy 流程中调用的)
+        local wgcf_bin="/tmp/wgcf"
+        if [ ! -f "$wgcf_bin" ]; then
+             # 如果是独立调用，可能没有下载 wgcf，这里做个简单兼容（虽然后续流程通常都有）
+             echo -e "${Warning} 未找到 wgcf 程序，无法仅通过账户生成配置"
+             echo -e "${Tip} 请提供完整的 WireGuard 配置 (以 [Interface] 开头)"
+             return 1
+        fi
+        
+        chmod +x "$wgcf_bin"
+        echo -e "${Info} 正在通过账户信息生成 Profile..."
+        cd "$wgcf_dir"
+        if "$wgcf_bin" generate; then
+             echo -e "${Success} 生成成功！"
+             return 0
+        else
+             echo -e "${Error} 生成失败！(可能是因为本机无法连接 Cloudflare API)"
+             echo -e "${Tip} 请回到本地工具，直接复制生成的 'WireGuard 配置' (包含 [Interface] 和 Address 的内容) 再次尝试"
+             # 清除错误的输入，允许重试? 目前逻辑是 return 1，外层会处理
+             return 1
+        fi
+    else
+        echo -e "${Error} 无法识别的配置格式"
+        echo -e "${Tip} 请粘贴 wgcf-profile.conf ([Interface]...) 或 wgcf-account.toml 内容"
+        return 1
+    fi
 }
 
 # 尝试导入本地配置
