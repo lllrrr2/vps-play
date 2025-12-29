@@ -347,6 +347,21 @@ EOF
 install_deps() {
     echo -e "${Info} 检查依赖..."
     
+    # 在 Debian/Ubuntu 上先修复可能的 dpkg 问题 (在所有模式下执行)
+    if [ -f /etc/debian_version ]; then
+        # 检测 dpkg 中断
+        if dpkg --audit 2>/dev/null | grep -q . || \
+           [ -f /var/lib/dpkg/lock-frontend ] || \
+           [ -f /var/lib/dpkg/lock ]; then
+            echo -e "${Warning} 检测到 dpkg 问题，正在修复..."
+            rm -f /var/lib/dpkg/lock-frontend 2>/dev/null
+            rm -f /var/lib/dpkg/lock 2>/dev/null
+            rm -f /var/cache/apt/archives/lock 2>/dev/null
+            dpkg --configure -a 2>/dev/null
+            echo -e "${Info} dpkg 修复完成"
+        fi
+    fi
+    
     # 检测内存
     local total_mem=$(free -m 2>/dev/null | awk '/^Mem:/{print $2}')
     local total_swap=$(free -m 2>/dev/null | awk '/^Swap:/{print $2}')
@@ -412,16 +427,6 @@ install_deps() {
     
     case "$OS_DISTRO" in
         debian|ubuntu)
-            # 自动修复 dpkg 中断问题
-            if dpkg --audit 2>/dev/null | grep -q .; then
-                echo -e "${Warning} 检测到 dpkg 中断，正在修复..."
-                dpkg --configure -a
-            fi
-            # 清理可能的锁文件
-            rm -f /var/lib/dpkg/lock-frontend 2>/dev/null
-            rm -f /var/lib/dpkg/lock 2>/dev/null
-            rm -f /var/cache/apt/archives/lock 2>/dev/null
-            
             # 设置非交互模式，避免 debconf 问题
             export DEBIAN_FRONTEND=noninteractive
             
