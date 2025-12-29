@@ -1342,11 +1342,10 @@ install_wireproxy() {
         echo -e "${Info} 检测到纯 IPv6 环境，使用 IPv6 Endpoint"
         endpoint="[2606:4700:d0::a29f:c001]:2408"
     else
-        # IPv4 或 双栈环境，使用通用域名或 IPv4 Endpoint
-        echo -e "${Info} 使用 Cloudflare 通用 Endpoint"
-        # 备选: 162.159.192.1:2408 (yonggekkk 优选)
-        # 备选: engage.cloudflareclient.com:2408 (官方域名)
-        endpoint="engage.cloudflareclient.com:2408"
+        # IPv4 或 双栈环境，使用优选固定 IP (参考 yonggekkk)
+        # 避免使用域名 (engage.cloudflareclient.com) 以防止 DNS 解析问题或解析到不可达的 IPv6
+        echo -e "${Info} 使用 Cloudflare 优选 Endpoint (162.159.192.1)"
+        endpoint="162.159.192.1:2408"
     fi
     
     # 如果获取不到地址，给个默认值
