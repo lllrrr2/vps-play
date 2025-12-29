@@ -574,9 +574,10 @@ show_main_menu() {
     echo -e " ${Green}16.${Reset} 网络工具"
     echo -e " ${Green}17.${Reset} 环境检测"
     echo -e " ${Green}18.${Reset} 保活设置"
-    echo -e " ${Green}19.${Reset} 更新脚本"
-    echo -e " ${Green}20.${Reset} 系统清理"
-    echo -e " ${Red}21.${Reset} ${Red}卸载脚本${Reset}"
+    echo -e " ${Green}19.${Reset} ${Cyan}Swap 管理${Reset} (小内存必备)"
+    echo -e " ${Green}20.${Reset} 更新脚本"
+    echo -e " ${Green}21.${Reset} 系统清理"
+    echo -e " ${Red}22.${Reset} ${Red}卸载脚本${Reset}"
     echo -e "${Green}---------------------------------------------------${Reset}"
     echo -e " ${Green}0.${Reset}  退出"
     echo -e "${Green}=================================================${Reset}"
@@ -612,7 +613,7 @@ main_loop() {
     while true; do
         show_main_menu
         
-        read -p " 请选择 [0-21]: " choice
+        read -p " 请选择 [0-22]: " choice
         
         case "$choice" in
             1)
@@ -753,6 +754,133 @@ main_loop() {
                 fi
                 ;;
             19)
+                # Swap 管理 - 调用 WARP 模块中的 Swap 管理函数
+                # 直接内嵌 Swap 管理功能
+                swap_menu() {
+                    while true; do
+                        clear
+                        echo -e "${Cyan}"
+                        cat << "SWAP_EOF"
+    ╔═╗╦ ╦╔═╗╔═╗
+    ╚═╗║║║╠═╣╠═╝
+    ╚═╝╚╩╝╩ ╩╩  
+    Swap 管理
+SWAP_EOF
+                        echo -e "${Reset}"
+                        
+                        # 显示当前状态
+                        echo -e "${Info} 当前内存/Swap 状态:"
+                        echo -e ""
+                        local total_mem=$(free -m 2>/dev/null | awk '/^Mem:/{print $2}')
+                        local used_mem=$(free -m 2>/dev/null | awk '/^Mem:/{print $3}')
+                        local total_swap=$(free -m 2>/dev/null | awk '/^Swap:/{print $2}')
+                        local used_swap=$(free -m 2>/dev/null | awk '/^Swap:/{print $3}')
+                        
+                        if [ -n "$total_mem" ]; then
+                            echo -e " 物理内存: ${Cyan}${total_mem}MB${Reset} (已用: ${used_mem}MB)"
+                        fi
+                        if [ -n "$total_swap" ] && [ "$total_swap" -gt 0 ]; then
+                            echo -e " 交换分区: ${Green}${total_swap}MB${Reset} (已用: ${used_swap}MB)"
+                        else
+                            echo -e " 交换分区: ${Red}未启用${Reset}"
+                        fi
+                        echo -e ""
+                        
+                        echo -e "${Green}==================== Swap 管理 ====================${Reset}"
+                        echo -e " ${Green}1.${Reset}  创建 Swap"
+                        echo -e " ${Green}2.${Reset}  删除 Swap"
+                        echo -e " ${Green}3.${Reset}  查看详细状态"
+                        echo -e "${Green}---------------------------------------------------${Reset}"
+                        echo -e " ${Green}0.${Reset}  返回"
+                        echo -e "${Green}====================================================${Reset}"
+                        
+                        read -p " 请选择 [0-3]: " swap_choice
+                        
+                        case "$swap_choice" in
+                            1)
+                                # 创建 Swap
+                                if [ "$(id -u)" -ne 0 ]; then
+                                    echo -e "${Error} 创建 Swap 需要 root 权限"
+                                else
+                                    local cur_mem=$(free -m 2>/dev/null | awk '/^Mem:/{print $2}')
+                                    cur_mem=${cur_mem:-0}
+                                    local recommend=$((256 - cur_mem))
+                                    [ $recommend -lt 256 ] && recommend=256
+                                    
+                                    echo -e ""
+                                    echo -e "${Info} 创建 Swap 交换分区"
+                                    echo -e " 当前内存: ${Cyan}${cur_mem}MB${Reset}"
+                                    echo -e "${Tip} 建议: Swap + 内存至少达到 ${Yellow}256MB${Reset}"
+                                    echo -e "${Tip} 推荐 Swap 大小: ${Green}${recommend}MB${Reset} 或更大"
+                                    echo -e ""
+                                    
+                                    read -p "输入 Swap 大小 (MB) [默认${recommend}]: " swap_size
+                                    swap_size=${swap_size:-$recommend}
+                                    
+                                    if [[ "$swap_size" =~ ^[0-9]+$ ]] && [ "$swap_size" -gt 0 ]; then
+                                        echo -e "${Info} 正在创建 ${swap_size}MB Swap..."
+                                        
+                                        # 删除旧的
+                                        swapoff /swapfile 2>/dev/null
+                                        rm -f /swapfile 2>/dev/null
+                                        
+                                        # 创建新的
+                                        if command -v fallocate &>/dev/null; then
+                                            fallocate -l ${swap_size}M /swapfile 2>/dev/null || \
+                                            dd if=/dev/zero of=/swapfile bs=1M count=$swap_size status=progress 2>/dev/null
+                                        else
+                                            dd if=/dev/zero of=/swapfile bs=1M count=$swap_size status=progress 2>/dev/null
+                                        fi
+                                        
+                                        chmod 600 /swapfile
+                                        mkswap /swapfile >/dev/null 2>&1
+                                        swapon /swapfile 2>/dev/null
+                                        
+                                        # 添加到 fstab
+                                        if ! grep -q "/swapfile" /etc/fstab 2>/dev/null; then
+                                            echo "/swapfile none swap sw 0 0" >> /etc/fstab
+                                        fi
+                                        
+                                        echo -e "${Info} Swap 创建成功!"
+                                    else
+                                        echo -e "${Error} 无效的大小"
+                                    fi
+                                fi
+                                ;;
+                            2)
+                                # 删除 Swap
+                                if [ "$(id -u)" -ne 0 ]; then
+                                    echo -e "${Error} 删除 Swap 需要 root 权限"
+                                else
+                                    echo -e "${Warning} 确定删除 Swap? [y/N]"
+                                    read -p "" confirm
+                                    if [[ $confirm =~ ^[Yy]$ ]]; then
+                                        swapoff -a 2>/dev/null
+                                        rm -f /swapfile 2>/dev/null
+                                        sed -i '/swapfile/d' /etc/fstab 2>/dev/null
+                                        echo -e "${Info} Swap 已删除"
+                                    fi
+                                fi
+                                ;;
+                            3)
+                                echo -e ""
+                                echo -e "${Info} 详细状态:"
+                                free -h 2>/dev/null || free -m
+                                echo -e ""
+                                swapon --show 2>/dev/null
+                                ;;
+                            0)
+                                return 0
+                                ;;
+                        esac
+                        
+                        echo -e ""
+                        read -p "按回车继续..."
+                    done
+                }
+                swap_menu
+                ;;
+            20)
                 echo -e "${Info} 更新脚本..."
                 echo -e ""
                 
@@ -829,7 +957,7 @@ main_loop() {
                     fi
                 fi
                 ;;
-            20)
+            21)
                 # 系统清理 - 尝试多个可能的路径
                 local clean_script=""
                 for _p in "$SCRIPT_DIR/utils/system_clean.sh" "$HOME/vps-play/utils/system_clean.sh" "/root/vps-play/utils/system_clean.sh"; do
@@ -848,7 +976,7 @@ main_loop() {
                     echo -e "  rm -rf /tmp/* /var/log/*.gz"
                 fi
                 ;;
-            21)
+            22)
                 # 卸载脚本
                 local uninstall_script=""
                 for _p in "$SCRIPT_DIR/uninstall.sh" "$HOME/vps-play/uninstall.sh" "/root/vps-play/uninstall.sh"; do
