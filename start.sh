@@ -952,6 +952,7 @@ SWAP_EOF
                 update_file "modules/singbox/manager.sh"
                 update_file "modules/argo/manager.sh"
                 update_file "modules/gost/manager.sh"
+                update_file "modules/gost/gost.sh"
                 update_file "modules/xui/manager.sh"
                 update_file "modules/frpc/manager.sh"
                 update_file "modules/frps/manager.sh"
