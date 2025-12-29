@@ -1057,22 +1057,26 @@ use_warp_go() {
 
     echo -e "${Info} 注册 WARP 账户 (warp-go)..."
     
-    # 使用 -register 参数，不需要 --accept-tos
-    if ./warp-go -register; then
+    # 尝试注册 (文档推荐 --register，且不需要 accept-tos)
+    # 优先尝试双横杠，如果失败尝试单横杠
+    local reg_success=false
+    if ./warp-go --register; then
+        reg_success=true
+    elif ./warp-go -register; then
+        reg_success=true
+    fi
+    
+    if [ "$reg_success" = true ]; then
         echo -e "${Info} 注册成功"
         
-        # 导出 WireGuard 配置
+        # 导出 WireGuard 配置 (warp.conf 格式不标准，必须导出)
         echo -e "${Info} 导出 WireGuard 配置..."
-        if ./warp-go -export-wireguard wgcf-profile.conf; then
+        if ./warp-go --export-wireguard wgcf-profile.conf || ./warp-go -export-wireguard wgcf-profile.conf; then
             touch wgcf-account.toml # 标记成功
             return 0
         else
-            # 如果导出命令失败，尝试直接复制 warp.conf (通常也是兼容的)
-            if [ -f "warp.conf" ]; then
-                cp warp.conf wgcf-profile.conf
-                touch wgcf-account.toml
-                return 0
-            fi
+            echo -e "${Error} 配置导出失败"
+            return 1
         fi
     fi
     
