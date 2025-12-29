@@ -85,6 +85,264 @@ show_ip() {
     esac
 }
 
+# ==================== Swap 管理 ====================
+# 检查当前 Swap 状态
+check_swap_status() {
+    echo -e "${Info} 当前 Swap 状态:"
+    echo -e ""
+    
+    # 获取内存信息
+    local total_mem=$(free -m 2>/dev/null | awk '/^Mem:/{print $2}')
+    local used_mem=$(free -m 2>/dev/null | awk '/^Mem:/{print $3}')
+    local free_mem=$(free -m 2>/dev/null | awk '/^Mem:/{print $4}')
+    
+    if [ -n "$total_mem" ]; then
+        echo -e " 物理内存: ${Cyan}${total_mem}MB${Reset} (已用: ${used_mem}MB, 空闲: ${free_mem}MB)"
+    fi
+    
+    # 获取 Swap 信息
+    local total_swap=$(free -m 2>/dev/null | awk '/^Swap:/{print $2}')
+    local used_swap=$(free -m 2>/dev/null | awk '/^Swap:/{print $3}')
+    local free_swap=$(free -m 2>/dev/null | awk '/^Swap:/{print $4}')
+    
+    if [ -n "$total_swap" ] && [ "$total_swap" -gt 0 ]; then
+        echo -e " 交换分区: ${Green}${total_swap}MB${Reset} (已用: ${used_swap}MB, 空闲: ${free_swap}MB)"
+        
+        # 显示 swap 文件位置
+        echo -e ""
+        echo -e " Swap 详情:"
+        swapon --show 2>/dev/null | while read line; do
+            echo -e "   $line"
+        done
+    else
+        echo -e " 交换分区: ${Red}未启用${Reset}"
+    fi
+    echo -e ""
+}
+
+# 创建 Swap
+create_swap() {
+    # 检查 root 权限
+    if [ "$EUID" -ne 0 ] && [ "$(id -u)" -ne 0 ]; then
+        echo -e "${Error} 创建 Swap 需要 root 权限"
+        return 1
+    fi
+    
+    # 检查是否已存在 swap
+    local current_swap=$(free -m 2>/dev/null | awk '/^Swap:/{print $2}')
+    if [ -n "$current_swap" ] && [ "$current_swap" -gt 0 ]; then
+        echo -e "${Warning} 当前已有 ${current_swap}MB Swap"
+        read -p "是否删除现有 Swap 并创建新的? [y/N]: " confirm
+        if [[ $confirm =~ ^[Yy]$ ]]; then
+            delete_swap
+        else
+            return 0
+        fi
+    fi
+    
+    # 获取当前内存
+    local current_mem=$(free -m 2>/dev/null | awk '/^Mem:/{print $2}')
+    current_mem=${current_mem:-0}
+    
+    # 计算推荐的 swap 大小 (使 swap + 内存至少达到 256MB)
+    local min_total=256
+    local recommended_swap=0
+    if [ "$current_mem" -lt "$min_total" ]; then
+        recommended_swap=$((min_total - current_mem))
+        # 至少 128MB，最好 256MB 以上更安全
+        [ "$recommended_swap" -lt 128 ] && recommended_swap=256
+    else
+        # 内存够用，但还是建议 256-512MB swap 作为缓冲
+        recommended_swap=256
+    fi
+    
+    echo -e ""
+    echo -e "${Info} 创建 Swap 交换分区"
+    echo -e ""
+    echo -e " 当前内存: ${Cyan}${current_mem}MB${Reset}"
+    echo -e ""
+    echo -e "${Tip} 建议: Swap + 内存 至少达到 ${Yellow}256MB${Reset}"
+    if [ "$current_mem" -lt "$min_total" ]; then
+        echo -e "${Warning} 当前内存不足 256MB，强烈建议创建 Swap!"
+        echo -e "${Tip} 推荐 Swap 大小: ${Green}${recommended_swap}MB${Reset} 或更大"
+    else
+        echo -e "${Tip} 推荐 Swap 大小: ${Green}256MB - 1GB${Reset}"
+    fi
+    echo -e ""
+    
+    # 选择单位
+    echo -e " ${Green}1.${Reset} MB (兆字节)"
+    echo -e " ${Green}2.${Reset} GB (吉字节)"
+    echo -e ""
+    read -p "选择单位 [1/2, 默认1]: " unit_choice
+    unit_choice=${unit_choice:-1}
+    
+    local unit="GB"
+    local multiplier=1024
+    if [ "$unit_choice" = "1" ]; then
+        unit="MB"
+        multiplier=1
+    fi
+    
+    # 计算默认大小
+    local default_size=$recommended_swap
+    if [ "$unit" = "GB" ]; then
+        default_size=1
+    fi
+    
+    read -p "输入 Swap 大小 (${unit}) [默认${default_size}]: " swap_size
+    swap_size=${swap_size:-$default_size}
+    
+    # 验证输入
+    if ! [[ "$swap_size" =~ ^[0-9]+$ ]] || [ "$swap_size" -le 0 ]; then
+        echo -e "${Error} 无效的大小，请输入正整数"
+        return 1
+    fi
+    
+    # 计算实际大小 (MB)
+    local swap_mb=$((swap_size * multiplier))
+    
+    # 检查磁盘空间
+    local free_disk=$(df -m / | awk 'NR==2{print $4}')
+    if [ "$swap_mb" -gt "$free_disk" ]; then
+        echo -e "${Error} 磁盘空间不足，需要 ${swap_mb}MB，可用 ${free_disk}MB"
+        return 1
+    fi
+    
+    echo -e ""
+    echo -e "${Info} 正在创建 ${swap_size}${unit} Swap 文件..."
+    
+    # 创建 swap 文件
+    local swap_file="/swapfile"
+    
+    # 检查并删除可能存在的旧文件
+    [ -f "$swap_file" ] && rm -f "$swap_file"
+    
+    # 使用 fallocate 或 dd 创建文件
+    if command -v fallocate &>/dev/null; then
+        if ! fallocate -l ${swap_mb}M "$swap_file" 2>/dev/null; then
+            echo -e "${Warning} fallocate 失败，尝试使用 dd..."
+            dd if=/dev/zero of="$swap_file" bs=1M count=$swap_mb status=progress 2>/dev/null
+        fi
+    else
+        dd if=/dev/zero of="$swap_file" bs=1M count=$swap_mb status=progress 2>/dev/null
+    fi
+    
+    if [ ! -f "$swap_file" ]; then
+        echo -e "${Error} 创建 Swap 文件失败"
+        return 1
+    fi
+    
+    # 设置权限
+    chmod 600 "$swap_file"
+    
+    # 格式化为 swap
+    echo -e "${Info} 格式化 Swap 文件..."
+    if ! mkswap "$swap_file" >/dev/null 2>&1; then
+        echo -e "${Error} 格式化 Swap 失败"
+        rm -f "$swap_file"
+        return 1
+    fi
+    
+    # 启用 swap
+    echo -e "${Info} 启用 Swap..."
+    if ! swapon "$swap_file" 2>/dev/null; then
+        echo -e "${Error} 启用 Swap 失败"
+        rm -f "$swap_file"
+        return 1
+    fi
+    
+    # 添加到 fstab 实现开机自动挂载
+    if ! grep -q "$swap_file" /etc/fstab 2>/dev/null; then
+        echo "$swap_file none swap sw 0 0" >> /etc/fstab
+        echo -e "${Info} 已添加到 /etc/fstab (开机自动挂载)"
+    fi
+    
+    echo -e ""
+    echo -e "${Info} Swap 创建成功!"
+    check_swap_status
+}
+
+# 删除 Swap
+delete_swap() {
+    # 检查 root 权限
+    if [ "$EUID" -ne 0 ] && [ "$(id -u)" -ne 0 ]; then
+        echo -e "${Error} 删除 Swap 需要 root 权限"
+        return 1
+    fi
+    
+    local current_swap=$(free -m 2>/dev/null | awk '/^Swap:/{print $2}')
+    if [ -z "$current_swap" ] || [ "$current_swap" -le 0 ]; then
+        echo -e "${Warning} 当前没有启用 Swap"
+        return 0
+    fi
+    
+    echo -e "${Info} 正在删除 Swap..."
+    
+    # 获取所有 swap 设备/文件
+    local swap_files=$(swapon --show=NAME --noheadings 2>/dev/null)
+    
+    for swap_file in $swap_files; do
+        echo -e " 禁用: $swap_file"
+        swapoff "$swap_file" 2>/dev/null
+        
+        # 如果是文件则删除
+        if [ -f "$swap_file" ]; then
+            rm -f "$swap_file"
+            echo -e " 删除: $swap_file"
+        fi
+        
+        # 从 fstab 中移除
+        if grep -q "$swap_file" /etc/fstab 2>/dev/null; then
+            sed -i "\|$swap_file|d" /etc/fstab
+            echo -e " 已从 /etc/fstab 中移除"
+        fi
+    done
+    
+    echo -e "${Info} Swap 已删除"
+}
+
+# Swap 管理菜单
+manage_swap_menu() {
+    while true; do
+        clear
+        echo -e "${Cyan}"
+        cat << "EOF"
+    ╔═╗╦ ╦╔═╗╔═╗
+    ╚═╗║║║╠═╣╠═╝
+    ╚═╝╚╩╝╩ ╩╩  
+    Swap 管理
+EOF
+        echo -e "${Reset}"
+        
+        check_swap_status
+        
+        echo -e "${Green}==================== Swap 管理 ====================${Reset}"
+        echo -e " ${Green}1.${Reset}  创建 Swap"
+        echo -e " ${Green}2.${Reset}  删除 Swap"
+        echo -e " ${Green}3.${Reset}  查看状态"
+        echo -e "${Green}---------------------------------------------------${Reset}"
+        echo -e " ${Green}0.${Reset}  返回"
+        echo -e "${Green}====================================================${Reset}"
+        
+        read -p " 请选择 [0-3]: " choice
+        
+        case "$choice" in
+            1) create_swap ;;
+            2) 
+                read -p "确定删除 Swap? [y/N]: " confirm
+                [[ $confirm =~ ^[Yy]$ ]] && delete_swap
+                ;;
+            3) check_swap_status ;;
+            0) return 0 ;;
+            *) echo -e "${Error} 无效选择" ;;
+        esac
+        
+        echo -e ""
+        read -p "按回车继续..."
+    done
+}
+
 # ==================== 安装依赖 ====================
 install_deps() {
     echo -e "${Info} 安装依赖..."
@@ -356,6 +614,38 @@ quick_install() {
     echo -e "${Info} 开始一键安装 WARP..."
     
     check_system
+    
+    # 检查内存，如果太小且没有 swap，建议先创建
+    local total_mem=$(free -m 2>/dev/null | awk '/^Mem:/{print $2}')
+    local total_swap=$(free -m 2>/dev/null | awk '/^Swap:/{print $2}')
+    
+    if [ -n "$total_mem" ] && [ "$total_mem" -lt 512 ]; then
+        echo -e ""
+        echo -e "${Warning} 检测到内存较小: ${Cyan}${total_mem}MB${Reset}"
+        
+        if [ -z "$total_swap" ] || [ "$total_swap" -le 0 ]; then
+            echo -e "${Warning} 且没有 Swap 交换分区"
+            echo -e "${Tip} 小内存机器安装 WARP 可能会因内存不足被 killed"
+            echo -e ""
+            read -p "是否先创建 Swap? [Y/n]: " create_swap_choice
+            create_swap_choice=${create_swap_choice:-Y}
+            
+            if [[ $create_swap_choice =~ ^[Yy]$ ]]; then
+                create_swap
+                if [ $? -ne 0 ]; then
+                    echo -e "${Warning} Swap 创建失败，继续安装可能会失败"
+                    read -p "是否继续安装? [y/N]: " continue_choice
+                    [[ ! $continue_choice =~ ^[Yy]$ ]] && return 1
+                fi
+            else
+                echo -e "${Warning} 跳过 Swap 创建，继续安装..."
+            fi
+        else
+            echo -e "${Info} 已有 Swap: ${total_swap}MB"
+        fi
+        echo -e ""
+    fi
+    
     install_deps || return 1
     download_wgcf || return 1
     register_warp || return 1
@@ -529,10 +819,12 @@ EOF
         echo -e " ${Green}11.${Reset} 查看当前 IP"
         echo -e " ${Green}12.${Reset} 流媒体解锁检测"
         echo -e "${Green}---------------------------------------------------${Reset}"
+        echo -e " ${Green}13.${Reset} ${Cyan}Swap 管理${Reset} (小内存必备)"
+        echo -e "${Green}---------------------------------------------------${Reset}"
         echo -e " ${Green}0.${Reset}  返回"
         echo -e "${Green}========================================================${Reset}"
         
-        read -p " 请选择 [0-12]: " choice
+        read -p " 请选择 [0-13]: " choice
         
         case "$choice" in
             1) quick_install ;;
@@ -547,6 +839,7 @@ EOF
             10) status_warp ;;
             11) show_ip ;;
             12) check_streaming ;;
+            13) manage_swap_menu ;;
             0) return 0 ;;
             *) echo -e "${Error} 无效选择" ;;
         esac

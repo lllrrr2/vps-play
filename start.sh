@@ -3,6 +3,12 @@
 # 支持: 普通VPS、NAT VPS、FreeBSD、Serv00/Hostuno
 # 功能: 节点管理、保活、域名、SSL、监控等
 #
+# 使用方法:
+#   一键运行: bash <(curl -Ls https://raw.githubusercontent.com/hxzlplp7/vps-play/main/start.sh)
+#   仅安装:   bash <(curl -Ls https://raw.githubusercontent.com/hxzlplp7/vps-play/main/start.sh) --install
+#   仅运行:   bash <(curl -Ls https://raw.githubusercontent.com/hxzlplp7/vps-play/main/start.sh) --run
+#   卸载:     bash <(curl -Ls https://raw.githubusercontent.com/hxzlplp7/vps-play/main/start.sh) --uninstall
+#
 # Copyright (C) 2025 VPS-play Contributors
 #
 # This program is free software: you can redistribute it and/or modify
@@ -18,7 +24,206 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-version="1.2.0"
+version="1.2.1"
+
+# ==================== 参数解析 ====================
+ACTION=""
+for arg in "$@"; do
+    case "$arg" in
+        --install|-i)
+            ACTION="install"
+            ;;
+        --run|-r)
+            ACTION="run"
+            ;;
+        --uninstall|-u)
+            ACTION="uninstall"
+            ;;
+        --help|-h)
+            echo "VPS-play v${version} - 通用 VPS 管理工具"
+            echo ""
+            echo "使用方法:"
+            echo "  bash <(curl -Ls URL)            # 自动安装并运行"
+            echo "  bash <(curl -Ls URL) --install  # 仅安装"
+            echo "  bash <(curl -Ls URL) --run      # 仅运行（需已安装）"
+            echo "  bash <(curl -Ls URL) --uninstall # 卸载"
+            echo ""
+            echo "选项:"
+            echo "  -i, --install    仅安装，不运行"
+            echo "  -r, --run        仅运行，不安装"
+            echo "  -u, --uninstall  卸载脚本"
+            echo "  -h, --help       显示帮助"
+            exit 0
+            ;;
+    esac
+done
+
+# ==================== 在线安装功能 ====================
+PROJECT_NAME="vps-play"
+INSTALL_DIR="$HOME/$PROJECT_NAME"
+REPO_RAW="https://raw.githubusercontent.com/hxzlplp7/vps-play/main"
+
+# 检查是否已安装
+is_installed() {
+    [ -d "$INSTALL_DIR" ] && [ -f "$INSTALL_DIR/start.sh" ] && [ -d "$INSTALL_DIR/modules" ]
+}
+
+# 在线安装函数
+online_install() {
+    local _Green="\033[32m"
+    local _Red="\033[31m"
+    local _Yellow="\033[33m"
+    local _Cyan="\033[36m"
+    local _Reset="\033[0m"
+    
+    echo -e "${_Cyan}"
+    cat << "EOF"
+    ╦  ╦╔═╗╔═╗   ╔═╗╦  ╔═╗╦ ╦
+    ╚╗╔╝╠═╝╚═╗───╠═╝║  ╠═╣╚╦╝
+     ╚╝ ╩  ╚═╝   ╩  ╩═╝╩ ╩ ╩ 
+    通用 VPS 管理工具 - 安装程序
+EOF
+    echo -e "${_Reset}"
+    
+    echo -e "${_Green}==================== 开始安装 ====================${_Reset}"
+    
+    # 检查 curl 或 wget
+    if command -v curl &>/dev/null; then
+        DOWNLOAD_CMD="curl -sL"
+    elif command -v wget &>/dev/null; then
+        DOWNLOAD_CMD="wget -qO-"
+    else
+        echo -e "${_Red}[错误]${_Reset} 需要 curl 或 wget"
+        exit 1
+    fi
+    
+    # 创建目录
+    mkdir -p "$INSTALL_DIR"/{utils,modules/{gost,xui,singbox,frpc,frps,cloudflared,nezha,warp,docker,benchmark,argo,jumper,stats},keepalive,config}
+    
+    # 下载文件函数
+    download_file() {
+        local path=$1
+        local url="${REPO_RAW}/${path}"
+        local dest="${INSTALL_DIR}/${path}"
+        
+        mkdir -p "$(dirname "$dest")"
+        
+        if [ "$DOWNLOAD_CMD" = "curl -sL" ]; then
+            curl -sL "$url" -o "$dest"
+        else
+            wget -q "$url" -O "$dest"
+        fi
+        
+        if [ $? -eq 0 ] && [ -s "$dest" ]; then
+            chmod +x "$dest" 2>/dev/null || true
+            echo -e "  ✓ $path"
+        else
+            echo -e "  ✗ $path (下载失败)"
+        fi
+    }
+    
+    echo -e "${_Green}[信息]${_Reset} 下载核心文件..."
+    download_file "start.sh"
+    
+    echo -e "${_Green}[信息]${_Reset} 下载工具库..."
+    download_file "utils/env_detect.sh"
+    download_file "utils/port_manager.sh"
+    download_file "utils/process_manager.sh"
+    download_file "utils/network.sh"
+    download_file "utils/system_clean.sh"
+    
+    echo -e "${_Green}[信息]${_Reset} 下载功能模块..."
+    download_file "modules/singbox/manager.sh"
+    download_file "modules/argo/manager.sh"
+    download_file "modules/gost/manager.sh"
+    download_file "modules/xui/manager.sh"
+    download_file "modules/frpc/manager.sh"
+    download_file "modules/frps/manager.sh"
+    download_file "modules/cloudflared/manager.sh"
+    download_file "modules/jumper/manager.sh"
+    download_file "modules/nezha/manager.sh"
+    download_file "modules/warp/manager.sh"
+    download_file "modules/docker/manager.sh"
+    download_file "modules/benchmark/manager.sh"
+    download_file "modules/stats/manager.sh"
+    
+    echo -e "${_Green}[信息]${_Reset} 下载保活模块..."
+    download_file "keepalive/manager.sh"
+    
+    # 创建快捷命令
+    echo -e "${_Green}[信息]${_Reset} 创建快捷命令..."
+    mkdir -p "$HOME/bin"
+    
+    cat > "$HOME/bin/vps-play" << SHORTCUT_EOF
+#!/bin/bash
+exec bash "$INSTALL_DIR/start.sh" "\$@"
+SHORTCUT_EOF
+    
+    chmod +x "$HOME/bin/vps-play"
+    
+    # 添加到 PATH
+    for profile_file in "$HOME/.profile" "$HOME/.bashrc" "$HOME/.zshrc"; do
+        if [ -f "$profile_file" ]; then
+            if ! grep -q 'HOME/bin' "$profile_file" 2>/dev/null; then
+                echo 'export PATH="$HOME/bin:$PATH"' >> "$profile_file"
+            fi
+        fi
+    done
+    
+    export PATH="$HOME/bin:$PATH"
+    
+    echo -e ""
+    echo -e "${_Green}==================== 安装完成 ====================${_Reset}"
+    echo -e ""
+}
+
+# 在线卸载函数
+online_uninstall() {
+    local _Green="\033[32m"
+    local _Red="\033[31m"
+    local _Yellow="\033[33m"
+    local _Reset="\033[0m"
+    
+    echo -e "${_Yellow}[警告]${_Reset} 确定要卸载 VPS-play 吗? [y/N]"
+    read -p "" confirm
+    if [[ ! $confirm =~ ^[Yy]$ ]]; then
+        echo -e "${_Green}[信息]${_Reset} 已取消"
+        exit 0
+    fi
+    
+    # 下载并执行卸载脚本
+    if command -v curl &>/dev/null; then
+        curl -sL "${REPO_RAW}/uninstall.sh" | bash
+    elif command -v wget &>/dev/null; then
+        wget -qO- "${REPO_RAW}/uninstall.sh" | bash
+    fi
+    exit 0
+}
+
+# ==================== 根据参数执行 ====================
+# 如果是卸载
+if [ "$ACTION" = "uninstall" ]; then
+    online_uninstall
+fi
+
+# 如果强制安装或未安装
+if [ "$ACTION" = "install" ] || ! is_installed; then
+    online_install
+    
+    # 如果只是安装，不继续运行
+    if [ "$ACTION" = "install" ]; then
+        echo -e "\033[33m快捷命令:\033[0m vps-play"
+        echo -e "\033[33m或运行:\033[0m bash ~/vps-play/start.sh"
+        exit 0
+    fi
+fi
+
+# 如果指定 --run 但未安装
+if [ "$ACTION" = "run" ] && ! is_installed; then
+    echo -e "\033[31m[错误]\033[0m VPS-play 未安装"
+    echo -e "\033[36m[提示]\033[0m 请先运行: bash <(curl -Ls ${REPO_RAW}/start.sh)"
+    exit 1
+fi
 
 # ==================== 初始化 ====================
 # 获取脚本目录 - 兼容 Linux 和 FreeBSD

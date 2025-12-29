@@ -66,30 +66,30 @@
 
 ## 🚀 快速开始
 
-### 一键安装
+### 一键运行 (推荐)
 
 ```bash
-# 一键安装 (推荐)
-curl -sL https://raw.githubusercontent.com/hxzlplp7/vps-play/main/install.sh | bash
+# 一键安装并运行 (自动检测，未安装则安装，然后运行)
+bash <(curl -Ls https://raw.githubusercontent.com/hxzlplp7/vps-play/main/start.sh)
 
 # 或使用 wget
-wget -qO- https://raw.githubusercontent.com/hxzlplp7/vps-play/main/install.sh | bash
-
-# 安装完成后运行
-vps-play
+bash <(wget -qO- https://raw.githubusercontent.com/hxzlplp7/vps-play/main/start.sh)
 ```
 
-### 基本使用
+### 其他选项
 
 ```bash
-# 启动主菜单
+# 仅安装，不运行
+bash <(curl -Ls https://raw.githubusercontent.com/hxzlplp7/vps-play/main/start.sh) --install
+
+# 仅运行 (已安装后可直接使用)
 vps-play
 
-# 或直接运行
-bash ~/vps-play/start.sh
+# 卸载
+bash <(curl -Ls https://raw.githubusercontent.com/hxzlplp7/vps-play/main/start.sh) --uninstall
 
-# 环境检测
-bash ~/vps-play/utils/env_detect.sh
+# 查看帮助
+bash <(curl -Ls https://raw.githubusercontent.com/hxzlplp7/vps-play/main/start.sh) --help
 ```
 
 ## 📖 功能模块
@@ -108,6 +108,11 @@ bash ~/vps-play/utils/env_detect.sh
 - **预设组合** (标准/全能/免费端口/完整)
 - 自动生成分享链接
 
+```bash
+# 直接打开 sing-box 管理
+bash ~/vps-play/modules/singbox/manager.sh
+```
+
 ### 2. Argo 节点 (新增)
 
 使用 Cloudflare Argo 隧道搭建节点：
@@ -118,12 +123,22 @@ bash ~/vps-play/utils/env_detect.sh
 - 自动获取 Cloudflare 域名
 - 无需公网IP/端口
 
+```bash
+# 直接打开 Argo 管理
+bash ~/vps-play/modules/argo/manager.sh
+```
+
 ### 3. GOST 流量中转
 
 强大的流量中转工具 (v3)：
 - TCP/UDP 端口转发
 - 多协议支持
 - 自动配置生成
+
+```bash
+# 直接打开 GOST 管理
+bash ~/vps-play/modules/gost/gost.sh
+```
 
 ### 4. X-UI 面板
 
@@ -133,12 +148,25 @@ bash ~/vps-play/utils/env_detect.sh
 - 流量统计
 - (需要 Docker 或 root 权限)
 
+```bash
+# 直接打开 X-UI 管理
+bash ~/vps-play/modules/xui/manager.sh
+```
+
 ### 5. FRPC/FRPS 内网穿透
 
 - FRPC 客户端：连接到远程服务器
 - FRPS 服务端：搭建自己的穿透服务器
 - 多隧道支持
 - 配置持久化
+
+```bash
+# 直接打开 FRPC 管理
+bash ~/vps-play/modules/frpc/manager.sh
+
+# 直接打开 FRPS 管理
+bash ~/vps-play/modules/frps/manager.sh
+```
 
 ### 6. Cloudflared 隧道
 
@@ -147,6 +175,11 @@ Cloudflare Tunnel：
 - HTTPS支持
 - Quick Tunnel 快速体验
 - 免费使用
+
+```bash
+# 直接打开 Cloudflared 管理
+bash ~/vps-play/modules/cloudflared/manager.sh
+```
 
 ### 7. 跳板服务器 (新增)
 
@@ -160,6 +193,11 @@ SSH 远程管理功能：
 - 批量执行命令
 - 批量上传文件
 
+```bash
+# 直接打开跳板服务器管理
+bash ~/vps-play/modules/jumper/manager.sh
+```
+
 ### 8. 哪吒监控
 
 服务器监控：
@@ -167,13 +205,35 @@ SSH 远程管理功能：
 - 告警通知
 - 多服务器管理
 
+```bash
+# 直接打开哪吒监控管理
+bash ~/vps-play/modules/nezha/manager.sh
+```
+
 ### 9. WARP 代理
 
 Cloudflare WARP：
 - 解锁流媒体
 - 更换出口IP
 - WARP+ 支持
+- **Swap 管理** (小内存 VPS 必备)
 - (需要 root 和内核模块)
+
+```bash
+# 直接打开 WARP 管理
+bash ~/vps-play/modules/warp/manager.sh
+```
+
+#### Swap 管理 (小内存 VPS 必备)
+
+小内存机器安装 WARP 可能因内存不足被 killed，建议先创建 Swap：
+
+```bash
+# 打开 WARP 管理后选择 13 进入 Swap 管理
+# 或在一键安装时会自动检测并提示创建 Swap
+```
+
+> 💡 建议：Swap + 内存至少达到 256MB
 
 ### 10. Docker 管理
 
@@ -182,6 +242,11 @@ Cloudflare WARP：
 - Docker Compose
 - 镜像加速配置
 - (不支持 Serv00)
+
+```bash
+# 直接打开 Docker 管理
+bash ~/vps-play/modules/docker/manager.sh
+```
 
 ## 🔧 系统工具
 
@@ -257,6 +322,23 @@ vps-play/
 ```
 
 ## 🔄 更新日志
+
+### v1.2.1 (2025-12-29)
+
+- ✨ 新增: **一键运行** (无需分步安装)
+  - `bash <(curl -Ls URL)` 自动安装并运行
+  - 支持 `--install` 仅安装
+  - 支持 `--uninstall` 卸载
+  - 支持 `--help` 查看帮助
+- ✨ 新增: **Swap 管理功能** (WARP 模块)
+  - 创建/删除 Swap 交换分区
+  - 自动检测内存，推荐合适的 Swap 大小
+  - 支持 MB/GB 单位选择
+  - 开机自动挂载 (写入 fstab)
+  - 一键安装 WARP 时自动检测并提示创建 Swap
+- 🔧 改进: 小内存 VPS 支持
+  - 建议 Swap + 内存至少达到 256MB
+  - 防止安装过程因内存不足被 killed
 
 ### v1.2.0 (2025-12-26)
 
