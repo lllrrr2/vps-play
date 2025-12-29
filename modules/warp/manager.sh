@@ -384,42 +384,128 @@ install_deps() {
         command -v wg &>/dev/null && has_wg=true
         command -v curl &>/dev/null || has_curl=false
         
-        if [ "$has_wg" = true ]; then
-            echo -e "${Info} wireguard-tools 已安装 ✓"
-        else
-            echo -e "${Error} wireguard-tools 未安装"
-            echo -e ""
-            echo -e "${Tip} 小内存服务器建议使用以下方案之一:"
-            echo -e ""
-            echo -e " ${Green}方案1:${Reset} 先创建 Swap 再安装"
-            echo -e "   选择菜单 ${Cyan}13. Swap 管理${Reset} 创建至少 256MB Swap"
-            echo -e "   然后重新运行安装"
-            echo -e ""
-            echo -e " ${Green}方案2:${Reset} 使用 Cloudflare WARP 官方客户端"
-            echo -e "   ${Cyan}curl https://pkg.cloudflareclient.com/install.sh | bash${Reset}"
-            echo -e "   官方客户端更轻量，适合小内存服务器"
-            echo -e ""
-            echo -e " ${Green}方案3:${Reset} 手动安装 wireguard-tools"
-            echo -e "   在有足够内存的机器上下载 deb 包"
-            echo -e "   然后使用 dpkg -i 手动安装"
-            echo -e ""
-            
-            read -p "是否强制继续安装 (可能失败)? [y/N]: " force_install
-            if [[ ! $force_install =~ ^[Yy]$ ]]; then
-                return 1
-            fi
-        fi
-        
         if [ "$has_curl" = false ]; then
             echo -e "${Error} curl 未安装，这是必需的"
             return 1
         fi
         
-        # 如果已有 wg 命令，直接返回成功
         if [ "$has_wg" = true ]; then
+            echo -e "${Info} wireguard-tools 已安装 ✓"
             echo -e "${Info} 依赖检查完成"
             return 0
         fi
+        
+        echo -e "${Error} wireguard-tools 未安装"
+        echo -e ""
+        echo -e "${Tip} 请选择安装方式:"
+        echo -e ""
+        echo -e " ${Green}1.${Reset} 创建 Swap 后自动安装 (推荐)"
+        echo -e " ${Green}2.${Reset} 手动下载 deb 包上传安装"
+        echo -e " ${Green}3.${Reset} 使用 Cloudflare WARP 官方客户端"
+        echo -e " ${Green}4.${Reset} 强制 apt 安装 (可能失败)"
+        echo -e " ${Green}0.${Reset} 取消"
+        echo -e ""
+        
+        read -p "请选择 [0-4]: " install_choice
+        
+        case "$install_choice" in
+            1)
+                # 创建 Swap 后安装
+                echo -e "${Info} 请先创建 Swap..."
+                echo -e "${Tip} 选择菜单 ${Cyan}13. Swap 管理${Reset} 创建至少 256MB Swap"
+                echo -e "${Tip} 然后重新运行安装"
+                return 1
+                ;;
+            2)
+                # 手动下载 deb 包安装
+                local deb_dir="/tmp/wg-debs"
+                mkdir -p "$deb_dir"
+                
+                # 获取系统架构
+                local arch=$(dpkg --print-architecture 2>/dev/null || echo "amd64")
+                local codename=$(lsb_release -cs 2>/dev/null || echo "bookworm")
+                
+                echo -e ""
+                echo -e "${Info} ===== 手动安装模式 ====="
+                echo -e ""
+                echo -e "${Tip} 请在本地电脑下载以下 deb 包并上传到服务器:"
+                echo -e ""
+                echo -e " ${Green}下载地址 (Debian ${codename} ${arch}):${Reset}"
+                echo -e "   wireguard-tools: ${Cyan}https://packages.debian.org/${codename}/${arch}/wireguard-tools/download${Reset}"
+                echo -e ""
+                echo -e " ${Green}上传位置:${Reset}"
+                echo -e "   ${Cyan}${deb_dir}/${Reset}"
+                echo -e ""
+                echo -e " ${Green}上传命令示例:${Reset}"
+                echo -e "   ${Yellow}scp wireguard-tools_*.deb root@你的IP:${deb_dir}/${Reset}"
+                echo -e ""
+                echo -e "${Tip} 如果下载页面显示依赖包，也需要一起下载上传"
+                echo -e ""
+                
+                while true; do
+                    read -p "文件已上传完成? [y/n/q(退出)]: " upload_confirm
+                    
+                    if [[ $upload_confirm =~ ^[Qq]$ ]]; then
+                        echo -e "${Warning} 已取消"
+                        return 1
+                    fi
+                    
+                    if [[ ! $upload_confirm =~ ^[Yy]$ ]]; then
+                        continue
+                    fi
+                    
+                    # 检查是否有 deb 文件
+                    local deb_files=$(ls ${deb_dir}/*.deb 2>/dev/null)
+                    if [ -z "$deb_files" ]; then
+                        echo -e "${Error} 未找到 deb 文件: ${deb_dir}/*.deb"
+                        echo -e "${Tip} 请确保已上传 .deb 文件到 ${deb_dir}/ 目录"
+                        continue
+                    fi
+                    
+                    echo -e "${Info} 找到以下 deb 文件:"
+                    ls -lh ${deb_dir}/*.deb
+                    echo -e ""
+                    
+                    # 尝试安装
+                    echo -e "${Info} 正在安装..."
+                    if dpkg -i ${deb_dir}/*.deb 2>&1; then
+                        # 修复可能的依赖问题
+                        apt-get install -f -y --no-install-recommends 2>/dev/null
+                        
+                        # 验证安装
+                        if command -v wg &>/dev/null; then
+                            echo -e "${Info} wireguard-tools 安装成功!"
+                            rm -rf "$deb_dir"
+                            return 0
+                        fi
+                    fi
+                    
+                    echo -e "${Error} 安装失败，请检查 deb 包是否正确"
+                    echo -e "${Tip} 可能需要下载更多依赖包"
+                    echo -e ""
+                done
+                ;;
+            3)
+                # Cloudflare 官方客户端
+                echo -e "${Info} 安装 Cloudflare WARP 官方客户端..."
+                curl https://pkg.cloudflareclient.com/install.sh | bash
+                if command -v warp-cli &>/dev/null; then
+                    echo -e "${Info} WARP 客户端安装成功"
+                    echo -e "${Tip} 使用方法: warp-cli register && warp-cli connect"
+                    return 0
+                else
+                    echo -e "${Error} 安装失败"
+                    return 1
+                fi
+                ;;
+            4)
+                # 强制 apt 安装
+                echo -e "${Warning} 强制安装，可能因内存不足失败..."
+                ;;
+            *)
+                return 1
+                ;;
+        esac
     fi
     
     # 正常安装模式
