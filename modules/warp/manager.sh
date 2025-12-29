@@ -1001,13 +1001,20 @@ use_warp_go() {
     local warp_go_version="1.0.8"
     local tag_version="v1.0.8"
     
+    # 归一化架构名称
+    local target_arch=""
     case "$arch" in
-        x86_64) warp_go_url="https://github.com/Fangliding/warp-go/releases/download/${tag_version}/warp-go_${warp_go_version}_linux_amd64.tar.gz" ;;
-        aarch64) warp_go_url="https://github.com/Fangliding/warp-go/releases/download/${tag_version}/warp-go_${warp_go_version}_linux_arm64.tar.gz" ;;
-        *) echo -e "${Error} warp-go 不支持此架构: $arch"; return 1 ;;
+        x86_64|amd64) target_arch="amd64" ;;
+        aarch64|arm64) target_arch="arm64" ;;
+        *) 
+            echo -e "${Error} warp-go 暂不支持您的架构: $arch (仅支持 amd64/arm64)"
+            return 1 
+            ;;
     esac
+    
+    warp_go_url="https://github.com/Fangliding/warp-go/releases/download/${tag_version}/warp-go_${warp_go_version}_linux_${target_arch}.tar.gz"
 
-    echo -e "${Info} 下载 warp-go (${tag_version})..."
+    echo -e "${Info} 下载 warp-go (${tag_version} ${target_arch})..."
     
     # 定义下载并检查函数
     download_and_check() {
