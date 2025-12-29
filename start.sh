@@ -754,14 +754,79 @@ main_loop() {
                 ;;
             19)
                 echo -e "${Info} 更新脚本..."
-                curl -sL https://raw.githubusercontent.com/hxzlplp7/vps-play/main/start.sh -o "$SCRIPT_DIR/start.sh.new"
-                if [ -s "$SCRIPT_DIR/start.sh.new" ]; then
-                    mv "$SCRIPT_DIR/start.sh.new" "$SCRIPT_DIR/start.sh"
-                    chmod +x "$SCRIPT_DIR/start.sh"
-                    echo -e "${Info} 更新完成，请重新运行脚本"
-                    exit 0
-                else
-                    echo -e "${Error} 更新失败"
+                echo -e ""
+                
+                local REPO_RAW="https://raw.githubusercontent.com/hxzlplp7/vps-play/main"
+                local UPDATE_DIR="$SCRIPT_DIR"
+                local update_count=0
+                local fail_count=0
+                
+                # 更新文件函数
+                update_file() {
+                    local path=$1
+                    local url="${REPO_RAW}/${path}"
+                    local dest="${UPDATE_DIR}/${path}"
+                    
+                    mkdir -p "$(dirname "$dest")" 2>/dev/null
+                    
+                    # 下载到临时文件
+                    local tmp_file="${dest}.tmp"
+                    if curl -sL "$url" -o "$tmp_file" 2>/dev/null; then
+                        if [ -s "$tmp_file" ]; then
+                            mv "$tmp_file" "$dest"
+                            chmod +x "$dest" 2>/dev/null
+                            echo -e "  ${Green}✓${Reset} $path"
+                            update_count=$((update_count + 1))
+                            return 0
+                        fi
+                    fi
+                    rm -f "$tmp_file" 2>/dev/null
+                    echo -e "  ${Red}✗${Reset} $path"
+                    fail_count=$((fail_count + 1))
+                    return 1
+                }
+                
+                echo -e "${Info} 更新核心文件..."
+                update_file "start.sh"
+                update_file "install.sh"
+                update_file "uninstall.sh"
+                
+                echo -e "${Info} 更新工具库..."
+                update_file "utils/env_detect.sh"
+                update_file "utils/port_manager.sh"
+                update_file "utils/process_manager.sh"
+                update_file "utils/network.sh"
+                update_file "utils/system_clean.sh"
+                
+                echo -e "${Info} 更新功能模块..."
+                update_file "modules/singbox/manager.sh"
+                update_file "modules/argo/manager.sh"
+                update_file "modules/gost/manager.sh"
+                update_file "modules/xui/manager.sh"
+                update_file "modules/frpc/manager.sh"
+                update_file "modules/frps/manager.sh"
+                update_file "modules/cloudflared/manager.sh"
+                update_file "modules/jumper/manager.sh"
+                update_file "modules/nezha/manager.sh"
+                update_file "modules/warp/manager.sh"
+                update_file "modules/docker/manager.sh"
+                update_file "modules/benchmark/manager.sh"
+                update_file "modules/stats/manager.sh"
+                
+                echo -e "${Info} 更新保活模块..."
+                update_file "keepalive/manager.sh"
+                
+                echo -e ""
+                echo -e "${Info} 更新完成: ${Green}${update_count}${Reset} 成功, ${Red}${fail_count}${Reset} 失败"
+                
+                if [ $update_count -gt 0 ]; then
+                    echo -e "${Tip} 请重新运行脚本以使用新版本"
+                    echo -e ""
+                    read -p "立即重启脚本? [Y/n]: " restart_choice
+                    restart_choice=${restart_choice:-Y}
+                    if [[ $restart_choice =~ ^[Yy]$ ]]; then
+                        exec bash "$SCRIPT_DIR/start.sh"
+                    fi
                 fi
                 ;;
             20)
