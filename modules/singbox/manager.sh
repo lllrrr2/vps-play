@@ -2645,8 +2645,13 @@ Public Key: ${public_key}
 ${ar_link}"
     fi
     
+    # 询问是否启用 WARP 出站
+    ask_warp_outbound
+    
     # 生成完整配置
     local exp_config=$(get_experimental_config)
+    local outbounds_config=$(get_outbounds_config "$WARP_ENABLED")
+    
     cat > "$SINGBOX_CONF" << EOF
 {
   "log": {
@@ -2655,12 +2660,7 @@ ${ar_link}"
   },
 ${exp_config}  "inbounds": [${inbounds}
   ],
-  "outbounds": [
-    {
-      "type": "direct",
-      "tag": "direct"
-    }
-  ]
+${outbounds_config}
 }
 EOF
     
@@ -2836,8 +2836,21 @@ install_combo_internal() {
         links="${links}\ntrojan://${password}@${server_ip}:${trojan_port}?sni=${CERT_DOMAIN:-www.bing.com}&allowInsecure=1#Trojan"
     fi
     
+    # 询问是否启用 WARP 出站
+    ask_warp_outbound
+    
     # 生成配置
-    echo "{\"log\":{\"level\":\"info\"},\"inbounds\":[${inbounds}],\"outbounds\":[{\"type\":\"direct\",\"tag\":\"direct\"}]}" | python3 -m json.tool 2>/dev/null > "$SINGBOX_CONF" || echo "{\"log\":{\"level\":\"info\"},\"inbounds\":[${inbounds}],\"outbounds\":[{\"type\":\"direct\",\"tag\":\"direct\"}]}" > "$SINGBOX_CONF"
+    local outbounds_json=""
+    if [ "$WARP_ENABLED" = true ] && [ -n "$WARP_PRIVATE_KEY" ]; then
+        local warp_endpoint=$(get_warp_endpoint)
+        local warp_ipv6="${WARP_IPV6:-2606:4700:110:8f1a:c53:a4c5:2249:1546}"
+        local warp_reserved="${WARP_RESERVED:-[0,0,0]}"
+        outbounds_json="{\"type\":\"direct\",\"tag\":\"direct\"}],\"endpoints\":[{\"type\":\"wireguard\",\"tag\":\"warp-out\",\"address\":[\"172.16.0.2/32\",\"${warp_ipv6}/128\"],\"private_key\":\"${WARP_PRIVATE_KEY}\",\"peers\":[{\"address\":\"${warp_endpoint}\",\"port\":2408,\"public_key\":\"bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=\",\"allowed_ips\":[\"0.0.0.0/0\",\"::/0\"],\"reserved\":${warp_reserved}}]}],\"route\":{\"rules\":[{\"action\":\"sniff\"},{\"action\":\"resolve\",\"strategy\":\"prefer_ipv4\"}],\"final\":\"warp-out\"}"
+    else
+        outbounds_json="{\"type\":\"direct\",\"tag\":\"direct\"}]"
+    fi
+    
+    echo "{\"log\":{\"level\":\"info\"},\"inbounds\":[${inbounds}],\"outbounds\":[${outbounds_json}}" | python3 -m json.tool 2>/dev/null > "$SINGBOX_CONF" || echo "{\"log\":{\"level\":\"info\"},\"inbounds\":[${inbounds}],\"outbounds\":[${outbounds_json}}" > "$SINGBOX_CONF"
     
     echo -e "$links" > "$SINGBOX_DIR/combo_links.txt"
     
