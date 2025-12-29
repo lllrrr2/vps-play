@@ -789,12 +789,14 @@ SWAP_EOF
                         echo -e "${Green}==================== Swap 管理 ====================${Reset}"
                         echo -e " ${Green}1.${Reset}  创建 Swap"
                         echo -e " ${Green}2.${Reset}  删除 Swap"
-                        echo -e " ${Green}3.${Reset}  查看详细状态"
+                        echo -e " ${Green}3.${Reset}  启用 Swap"
+                        echo -e " ${Green}4.${Reset}  停止 Swap"
+                        echo -e " ${Green}5.${Reset}  查看详细状态"
                         echo -e "${Green}---------------------------------------------------${Reset}"
                         echo -e " ${Green}0.${Reset}  返回"
                         echo -e "${Green}====================================================${Reset}"
                         
-                        read -p " 请选择 [0-3]: " swap_choice
+                        read -p " 请选择 [0-5]: " swap_choice
                         
                         case "$swap_choice" in
                             1)
@@ -863,6 +865,26 @@ SWAP_EOF
                                 fi
                                 ;;
                             3)
+                                # 启用 Swap
+                                if [ "$(id -u)" -ne 0 ]; then
+                                    echo -e "${Error} 启用 Swap 需要 root 权限"
+                                else
+                                    if [ -f /swapfile ]; then
+                                        swapon /swapfile 2>/dev/null && echo -e "${Info} Swap 已启用" || echo -e "${Error} 启用失败"
+                                    else
+                                        echo -e "${Warning} Swap 文件不存在，请先创建"
+                                    fi
+                                fi
+                                ;;
+                            4)
+                                # 停止 Swap
+                                if [ "$(id -u)" -ne 0 ]; then
+                                    echo -e "${Error} 停止 Swap 需要 root 权限"
+                                else
+                                    swapoff -a 2>/dev/null && echo -e "${Info} Swap 已停止" || echo -e "${Error} 停止失败"
+                                fi
+                                ;;
+                            5)
                                 echo -e ""
                                 echo -e "${Info} 详细状态:"
                                 free -h 2>/dev/null || free -m

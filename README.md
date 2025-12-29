@@ -85,6 +85,9 @@ bash <(curl -Ls https://raw.githubusercontent.com/hxzlplp7/vps-play/main/start.s
 # 仅运行 (已安装后可直接使用)
 vps-play
 
+# 更新脚本 (在菜单中选择 20，或重新运行一键命令)
+bash <(curl -Ls https://raw.githubusercontent.com/hxzlplp7/vps-play/main/start.sh)
+
 # 卸载
 bash <(curl -Ls https://raw.githubusercontent.com/hxzlplp7/vps-play/main/start.sh) --uninstall
 
@@ -353,10 +356,6 @@ vps-play/
 - 🔧 改进: sing-box 菜单优化
   - 添加 AnyTLS 和 Any-Reality 选项
   - 自动版本检查和升级
-- 📚 文档: 新增详细配置文档
-  - `ANYTLS_ANALYSIS.md` - 协议分析
-  - `ANYTLS_INTEGRATION_REPORT.md` - 集成报告
-  - `ANYTLS_QUICK_REFERENCE.md` - 快速参考
 - 🙏 致谢: 感谢 [argosbx](https://github.com/yonggekkk/argosbx) 提供参考实现
 
 ### v1.1.0 (2025-12-24)
