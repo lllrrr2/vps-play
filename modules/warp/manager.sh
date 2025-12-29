@@ -369,6 +369,16 @@ install_deps() {
     
     case "$OS_DISTRO" in
         debian|ubuntu)
+            # 自动修复 dpkg 中断问题
+            if dpkg --audit 2>/dev/null | grep -q .; then
+                echo -e "${Warning} 检测到 dpkg 中断，正在修复..."
+                dpkg --configure -a
+            fi
+            # 清理可能的锁文件
+            rm -f /var/lib/dpkg/lock-frontend 2>/dev/null
+            rm -f /var/lib/dpkg/lock 2>/dev/null
+            rm -f /var/cache/apt/archives/lock 2>/dev/null
+            
             apt-get update
             apt-get install -y curl wget wireguard-tools
             ;;
