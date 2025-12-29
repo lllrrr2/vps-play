@@ -1056,22 +1056,28 @@ use_warp_go() {
     chmod +x warp-go
 
     echo -e "${Info} 注册 WARP 账户 (warp-go)..."
-    ./warp-go --register --accept-tos
     
-    if [ ! -f "warp.conf" ]; then
-        echo -e "${Error} warp-go 注册失败，尝试备用命令..."
-        ./warp-go register
-    fi
-    
-    if [ -f "warp.conf" ]; then
+    # 使用 -register 参数，不需要 --accept-tos
+    if ./warp-go -register; then
         echo -e "${Info} 注册成功"
-        cp warp.conf wgcf-profile.conf
-        touch wgcf-account.toml # 标记成功
-        return 0
-    else
-        echo -e "${Error} 注册失败"
-        return 1
+        
+        # 导出 WireGuard 配置
+        echo -e "${Info} 导出 WireGuard 配置..."
+        if ./warp-go -export-wireguard wgcf-profile.conf; then
+            touch wgcf-account.toml # 标记成功
+            return 0
+        else
+            # 如果导出命令失败，尝试直接复制 warp.conf (通常也是兼容的)
+            if [ -f "warp.conf" ]; then
+                cp warp.conf wgcf-profile.conf
+                touch wgcf-account.toml
+                return 0
+            fi
+        fi
     fi
+    
+    echo -e "${Error} warp-go 注册失败"
+    return 1
 }
 
 install_wireproxy() {
