@@ -60,9 +60,9 @@
 | FRPC | ✅ | 内网穿透客户端 |
 | 跳板服务器 | ✅ | SSH远程管理 |
 | 哪吒 Agent | ✅ | 监控探针 |
+| X-UI | ✅ | 参考 [serv00-xui](https://github.com/hxzlplp7/serv00-xui) |
 | Docker | ❌ | 需要 root 权限 |
 | WARP | ❌ | 需要内核模块 |
-| X-UI | ❌ | 需要 Docker 或 root |
 
 ## 🚀 快速开始
 
@@ -146,7 +146,7 @@ bash ~/vps-play/modules/gost/gost.sh
 - Web界面管理
 - 多用户支持
 - 流量统计
-- (需要 Docker 或 root 权限)
+- 支持 Serv00/Hostuno (参考 [serv00-xui](https://github.com/hxzlplp7/serv00-xui))
 
 ```bash
 # 直接打开 X-UI 管理
