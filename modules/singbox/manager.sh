@@ -144,133 +144,33 @@ mkdir -p "$WARP_DATA_DIR"
 # 全局变量，标记是否启用 WARP 出站
 WARP_ENABLED=false
 
-# 初始化/获取 WARP 配置
+# 初始化/获取 WARP 配置 (直接采用 argosbx 的方案)
 init_warp_config() {
-    echo -e "${Info} 初始化 WARP 配置..."
+    echo -e "${Info} 获取 WARP 配置..."
     
-    # 检查是否已有配置
-    if [ -f "$WARP_DATA_DIR/private_key" ] && [ -f "$WARP_DATA_DIR/reserved" ]; then
-        echo -e "${Info} 检测到已存在的 WARP 配置"
-        WARP_PRIVATE_KEY=$(cat "$WARP_DATA_DIR/private_key")
-        WARP_RESERVED=$(cat "$WARP_DATA_DIR/reserved")
-        WARP_IPV6=$(cat "$WARP_DATA_DIR/ipv6" 2>/dev/null || echo "2606:4700:110:8f1a:c53:a4c5:2249:1546")
-        return 0
-    fi
+    # 尝试从勇哥的 API 获取预注册配置
+    local warpurl=""
+    warpurl=$(curl -sm5 -k https://ygkkk-warp.renky.eu.org 2>/dev/null) || \
+    warpurl=$(wget -qO- --timeout=5 https://ygkkk-warp.renky.eu.org 2>/dev/null)
     
-    echo -e "${Info} 需要获取 WARP 配置，请选择方式:"
-    echo -e " ${Green}1.${Reset} 手动输入配置 (推荐，从本地 wgcf 工具获取)"
-    echo -e " ${Green}2.${Reset} 尝试自动注册 (可能失败)"
-    read -p "请选择 [1-2]: " warp_method
-    
-    case "$warp_method" in
-        2)
-            # 尝试自动注册
-            auto_register_warp
-            ;;
-        *)
-            # 手动输入
-            manual_input_warp
-            ;;
-    esac
-}
-
-# 手动输入 WARP 配置
-manual_input_warp() {
-    echo -e ""
-    echo -e "${Info} 请输入 WARP 配置信息"
-    echo -e "${Tip} 可以从本地 Python 工具 (warp_reg_gui.py) 生成的配置中获取"
-    echo -e ""
-    
-    read -p "PrivateKey: " WARP_PRIVATE_KEY
-    if [ -z "$WARP_PRIVATE_KEY" ]; then
-        echo -e "${Error} PrivateKey 不能为空"
-        return 1
-    fi
-    
-    # Reserved 可选，默认为空数组
-    read -p "Reserved (可选，格式如 [0,0,0] 留空跳过): " WARP_RESERVED_INPUT
-    if [ -n "$WARP_RESERVED_INPUT" ]; then
-        WARP_RESERVED="$WARP_RESERVED_INPUT"
+    if echo "$warpurl" | grep -q ygkkk; then
+        WARP_PRIVATE_KEY=$(echo "$warpurl" | awk -F'：' '/Private_key/{print $2}' | xargs)
+        WARP_IPV6=$(echo "$warpurl" | awk -F'：' '/IPV6/{print $2}' | xargs)
+        WARP_RESERVED=$(echo "$warpurl" | awk -F'：' '/reserved/{print $2}' | xargs)
+        echo -e "${Info} WARP 配置获取成功 (远程)"
     else
-        WARP_RESERVED="[0,0,0]"
+        # 备用硬编码配置 (和 argosbx 一样)
+        WARP_IPV6='2606:4700:110:8d8d:1845:c39f:2dd5:a03a'
+        WARP_PRIVATE_KEY='52cuYFgCJXp0LAq7+nWJIbCXXgU9eGggOc+Hlfz5u6A='
+        WARP_RESERVED='[215, 69, 233]'
+        echo -e "${Info} WARP 配置获取成功 (备用)"
     fi
     
-    # IPv6 地址
-    read -p "IPv6 地址 (可选，留空使用默认): " WARP_IPV6_INPUT
-    if [ -n "$WARP_IPV6_INPUT" ]; then
-        WARP_IPV6="$WARP_IPV6_INPUT"
-    else
-        WARP_IPV6="2606:4700:110:8f1a:c53:a4c5:2249:1546"
-    fi
-    
-    # 保存配置
+    # 保存配置供后续使用
     echo "$WARP_PRIVATE_KEY" > "$WARP_DATA_DIR/private_key"
     echo "$WARP_RESERVED" > "$WARP_DATA_DIR/reserved"
     echo "$WARP_IPV6" > "$WARP_DATA_DIR/ipv6"
     
-    echo -e "${Info} WARP 配置已保存"
-    return 0
-}
-
-# 尝试自动注册 WARP
-auto_register_warp() {
-    echo -e "${Info} 尝试自动注册 WARP..."
-    
-    local wgcf_tmp="/tmp/wgcf_$$"
-    local wgcf_dir="/tmp/wgcf_config_$$"
-    mkdir -p "$wgcf_dir"
-    
-    # 下载 wgcf
-    local arch=$(uname -m)
-    local wgcf_arch="amd64"
-    case "$arch" in
-        aarch64|arm64) wgcf_arch="arm64" ;;
-    esac
-    
-    local wgcf_url="https://github.com/ViRb3/wgcf/releases/download/v2.2.22/wgcf_2.2.22_linux_${wgcf_arch}"
-    
-    echo -e "${Info} 下载 wgcf..."
-    if ! curl -sL "$wgcf_url" -o "$wgcf_tmp"; then
-        echo -e "${Error} wgcf 下载失败"
-        rm -rf "$wgcf_dir" "$wgcf_tmp"
-        return 1
-    fi
-    chmod +x "$wgcf_tmp"
-    
-    # 注册
-    cd "$wgcf_dir"
-    echo -e "${Info} 注册 WARP 账户..."
-    if ! yes 2>/dev/null | "$wgcf_tmp" register --accept-tos >/dev/null 2>&1; then
-        echo -e "${Error} WARP 注册失败，请使用手动输入方式"
-        rm -rf "$wgcf_dir" "$wgcf_tmp"
-        cd - >/dev/null
-        manual_input_warp
-        return $?
-    fi
-    
-    # 生成配置
-    "$wgcf_tmp" generate >/dev/null 2>&1
-    
-    if [ -f "$wgcf_dir/wgcf-profile.conf" ]; then
-        WARP_PRIVATE_KEY=$(grep "PrivateKey" "$wgcf_dir/wgcf-profile.conf" | awk '{print $3}')
-        WARP_IPV6=$(grep "Address" "$wgcf_dir/wgcf-profile.conf" | grep ":" | awk '{print $3}' | cut -d'/' -f1)
-        WARP_RESERVED="[0,0,0]"
-        
-        # 保存
-        echo "$WARP_PRIVATE_KEY" > "$WARP_DATA_DIR/private_key"
-        echo "$WARP_RESERVED" > "$WARP_DATA_DIR/reserved"
-        echo "$WARP_IPV6" > "$WARP_DATA_DIR/ipv6"
-        
-        echo -e "${Info} WARP 自动注册成功"
-    else
-        echo -e "${Error} 配置生成失败"
-        rm -rf "$wgcf_dir" "$wgcf_tmp"
-        cd - >/dev/null
-        return 1
-    fi
-    
-    rm -rf "$wgcf_dir" "$wgcf_tmp"
-    cd - >/dev/null
     return 0
 }
 
