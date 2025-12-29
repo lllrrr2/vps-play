@@ -88,6 +88,9 @@ init_uuid() {
         
         # 保存到文件
         if [ -n "$uuid" ]; then
+            if [ ! -d "$DATA_DIR" ]; then
+                mkdir -p "$DATA_DIR"
+            fi
             echo "$uuid" > "$DATA_DIR/uuid"
         fi
     fi
@@ -366,10 +369,31 @@ generate_self_signed_cert() {
     
     echo -e "${Info} 生成自签名证书 (域名: $domain)..."
     
-    openssl ecparam -genkey -name prime256v1 -out "$CERT_DIR/private.key" 2>/dev/null
-    openssl req -new -x509 -days 36500 -key "$CERT_DIR/private.key" -out "$CERT_DIR/cert.crt" -subj "/CN=$domain" 2>/dev/null
+    # 检查 openssl
+    if ! command -v openssl >/dev/null 2>&1; then
+        echo -e "${Info} 正在安装 openssl..."
+        if command -v apt-get >/dev/null 2>&1; then
+            apt-get update -qq && apt-get install -y -qq openssl
+        elif command -v yum >/dev/null 2>&1; then
+            yum install -y -q openssl
+        elif command -v apk >/dev/null 2>&1; then
+            apk add --quiet openssl
+        fi
+    fi
     
-    chmod 644 "$CERT_DIR/cert.crt" "$CERT_DIR/private.key"
+    if [ ! -d "$CERT_DIR" ]; then
+        mkdir -p "$CERT_DIR"
+    fi
+    
+    openssl ecparam -genkey -name prime256v1 -out "$CERT_DIR/private.key"
+    openssl req -new -x509 -days 36500 -key "$CERT_DIR/private.key" -out "$CERT_DIR/cert.crt" -subj "/CN=$domain"
+    
+    if [ -f "$CERT_DIR/cert.crt" ] && [ -f "$CERT_DIR/private.key" ]; then
+        chmod 644 "$CERT_DIR/cert.crt" "$CERT_DIR/private.key"
+    else
+        echo -e "${Error} 证书生成失败"
+        return 1
+    fi
     
     echo -e "${Info} 证书生成完成"
     echo -e " 证书路径: ${Cyan}$CERT_DIR/cert.crt${Reset}"
@@ -430,19 +454,28 @@ cert_menu() {
         1)
             read -p "伪装域名 [www.bing.com]: " fake_domain
             fake_domain=${fake_domain:-www.bing.com}
-            generate_self_signed_cert "$fake_domain"
+            if ! generate_self_signed_cert "$fake_domain"; then
+                return 1
+            fi
             CERT_DOMAIN="$fake_domain"
             ;;
         2)
-            apply_acme_cert
+            if ! apply_acme_cert; then
+                return 1
+            fi
             CERT_DOMAIN=$(cat "$CERT_DIR/domain.txt" 2>/dev/null)
             ;;
         3)
             read -p "证书路径: " custom_cert
             read -p "私钥路径: " custom_key
-            [ -f "$custom_cert" ] && cp "$custom_cert" "$CERT_DIR/cert.crt"
-            [ -f "$custom_key" ] && cp "$custom_key" "$CERT_DIR/private.key"
-            read -p "证书域名: " CERT_DOMAIN
+            if [ -f "$custom_cert" ] && [ -f "$custom_key" ]; then
+                cp "$custom_cert" "$CERT_DIR/cert.crt"
+                cp "$custom_key" "$CERT_DIR/private.key"
+                read -p "证书域名: " CERT_DOMAIN
+            else
+                echo -e "${Error} 证书文件不存在"
+                return 1
+            fi
             ;;
     esac
 }
@@ -2721,8 +2754,11 @@ install_combo_internal() {
     done
     
     # 配置证书
+    # 配置证书
     if [ "$install_hy2" = true ] || [ "$install_tuic" = true ] || [ "$install_trojan" = true ]; then
-        cert_menu
+        if ! cert_menu; then
+            return 1
+        fi
     fi
     
     # 生成认证信息
