@@ -517,7 +517,17 @@ install_deps() {
             export DEBIAN_FRONTEND=noninteractive
             
             apt-get update
-            apt-get install -y --no-install-recommends curl wget wireguard-tools
+            
+            # 只安装新包，不升级现有包 (避免升级 linux-image 等大型包)
+            # --no-upgrade: 不升级已安装的包
+            apt-get install -y --no-install-recommends --no-upgrade wireguard-tools
+            
+            # 如果失败，可能是依赖问题，尝试修复
+            if [ $? -ne 0 ]; then
+                echo -e "${Warning} 安装失败，尝试修复依赖..."
+                apt-get install -f -y --no-install-recommends
+                apt-get install -y --no-install-recommends --no-upgrade wireguard-tools
+            fi
             ;;
         centos|rhel|rocky|alma)
             yum install -y epel-release

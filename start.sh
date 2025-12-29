@@ -98,7 +98,19 @@ EOF
         exit 1
     fi
     
-    # 创建目录
+    # 清理旧安装（避免目录结构错误）
+    if [ -d "$INSTALL_DIR" ]; then
+        echo -e "${_Yellow}[信息]${_Reset} 清理旧安装..."
+        # 只删除脚本文件，保留配置
+        rm -rf "$INSTALL_DIR/start.sh" 2>/dev/null
+        rm -rf "$INSTALL_DIR/install.sh" 2>/dev/null
+        rm -rf "$INSTALL_DIR/uninstall.sh" 2>/dev/null
+        rm -rf "$INSTALL_DIR/utils" 2>/dev/null
+        rm -rf "$INSTALL_DIR/modules" 2>/dev/null
+        rm -rf "$INSTALL_DIR/keepalive" 2>/dev/null
+    fi
+    
+    # 创建目录结构
     mkdir -p "$INSTALL_DIR"/{utils,modules/{gost,xui,singbox,frpc,frps,cloudflared,nezha,warp,docker,benchmark,argo,jumper,stats},keepalive,config}
     
     # 下载文件函数
