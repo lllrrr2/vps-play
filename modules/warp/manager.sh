@@ -1093,7 +1093,7 @@ install_wireproxy() {
     # 菜单选择
     echo -e "${Green}请选择 WARP 账户注册/配置生成方式:${Reset}"
     echo -e " 1. 使用 wgcf 自动注册 (默认)"
-    echo -e " 2. 使用 warp-go 自动注册 (推荐, 成功率更高)"
+    echo -e " 2. 使用 warp-go 自动注册 (部分地区/IP可能失效)"
     echo -e " 3. 导入本地配置文件 / 手动输入"
     read -p "请选择 [1-3]: " config_mode
     
