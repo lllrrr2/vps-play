@@ -900,6 +900,160 @@ quick_install() {
     echo -e "${Info} WARP 安装完成!"
 }
 
+# ==================== WireProxy 安装 (容器模式) ====================
+# 适合容器环境和小内存服务器，不需要内核模块
+WIREPROXY_VERSION="1.0.9"
+WIREPROXY_BIN="/usr/local/bin/wireproxy"
+WIREPROXY_CONFIG="/etc/wireproxy/config.toml"
+WIREPROXY_SERVICE="/etc/systemd/system/wireproxy.service"
+
+install_wireproxy() {
+    echo -e "${Info} ===== WireProxy 安装模式 ====="
+    echo -e "${Tip} 此模式适合容器环境和小内存服务器"
+    echo -e "${Tip} 不需要 WireGuard 内核模块"
+    echo -e ""
+    
+    # 检测架构
+    local arch_type="amd64"
+    case "$(uname -m)" in
+        x86_64|amd64) arch_type="amd64" ;;
+        aarch64|arm64) arch_type="arm64" ;;
+        armv7l) arch_type="arm" ;;
+    esac
+    
+    # 步骤1: 获取配置
+    echo -e "${Green}步骤 1/4: 获取 WARP WireGuard 配置${Reset}"
+    echo -e ""
+    echo -e "${Tip} 请先运行以下脚本获取配置:"
+    echo -e "   ${Cyan}bash <(wget -qO- https://raw.githubusercontent.com/yonggekkk/warp-yg/main/CFwarp.sh)${Reset}"
+    echo -e ""
+    echo -e "${Tip} 在脚本菜单中依次选择: 1 -> 1 -> 1"
+    echo -e "${Tip} 然后复制输出的 WireGuard 配置"
+    echo -e ""
+    
+    read -p "已获取配置? 按回车继续，或输入 n 取消: " got_config
+    [[ $got_config =~ ^[Nn]$ ]] && return 1
+    
+    # 步骤2: 下载 WireProxy
+    echo -e ""
+    echo -e "${Green}步骤 2/4: 下载 WireProxy${Reset}"
+    
+    local wireproxy_url="https://github.com/whyvl/wireproxy/releases/download/v${WIREPROXY_VERSION}/wireproxy_linux_${arch_type}.tar.gz"
+    local tmp_file="/tmp/wireproxy.tar.gz"
+    
+    echo -e "${Info} 下载 WireProxy v${WIREPROXY_VERSION} (${arch_type})..."
+    
+    if curl -sL "$wireproxy_url" -o "$tmp_file"; then
+        # 解压
+        cd /tmp
+        tar -xzf "$tmp_file" 2>/dev/null
+        
+        if [ -f /tmp/wireproxy ]; then
+            mv /tmp/wireproxy "$WIREPROXY_BIN"
+            chmod +x "$WIREPROXY_BIN"
+            rm -f "$tmp_file"
+            echo -e "${Info} WireProxy 安装成功"
+        else
+            echo -e "${Error} 解压失败"
+            return 1
+        fi
+    else
+        echo -e "${Error} 下载失败"
+        echo -e "${Tip} 请手动下载: $wireproxy_url"
+        return 1
+    fi
+    
+    # 步骤3: 配置
+    echo -e ""
+    echo -e "${Green}步骤 3/4: 创建配置文件${Reset}"
+    
+    mkdir -p /etc/wireproxy
+    
+    echo -e "${Tip} 请粘贴 WireGuard 配置内容 (粘贴完成后输入 EOF 并回车):"
+    echo -e ""
+    
+    local config_content=""
+    while IFS= read -r line; do
+        [[ "$line" == "EOF" ]] && break
+        config_content+="$line"$'\n'
+    done
+    
+    if [ -z "$config_content" ]; then
+        echo -e "${Error} 配置内容为空"
+        return 1
+    fi
+    
+    # 添加 SOCKS5 配置
+    cat > "$WIREPROXY_CONFIG" << WIREPROXY_EOF
+${config_content}
+# SOCKS5 代理配置
+[Socks5]
+BindAddress = 127.0.0.1:1080
+WIREPROXY_EOF
+    
+    echo -e "${Info} 配置文件已创建: $WIREPROXY_CONFIG"
+    
+    # 步骤4: 创建系统服务
+    echo -e ""
+    echo -e "${Green}步骤 4/4: 创建系统服务${Reset}"
+    
+    cat > "$WIREPROXY_SERVICE" << SERVICE_EOF
+[Unit]
+Description=WireProxy SOCKS5 Client
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/etc/wireproxy
+ExecStart=$WIREPROXY_BIN -c config.toml
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+SERVICE_EOF
+    
+    systemctl daemon-reload
+    systemctl enable wireproxy 2>/dev/null
+    systemctl start wireproxy
+    
+    sleep 2
+    
+    # 验证
+    if systemctl is-active wireproxy &>/dev/null; then
+        echo -e "${Info} WireProxy 服务已启动"
+        
+        # 测试代理
+        echo -e ""
+        echo -e "${Info} 测试代理连接..."
+        local test_ip=$(curl -sx socks5h://127.0.0.1:1080 ip.sb 2>/dev/null)
+        
+        if [ -n "$test_ip" ]; then
+            echo -e "${Info} 代理测试成功!"
+            echo -e "${Info} 出口 IP: ${Cyan}${test_ip}${Reset}"
+        else
+            echo -e "${Warning} 代理测试失败，可能需要等待几秒后重试"
+            echo -e "${Tip} 手动测试: curl -x socks5h://127.0.0.1:1080 ip.sb"
+        fi
+    else
+        echo -e "${Error} WireProxy 服务启动失败"
+        echo -e "${Tip} 查看日志: journalctl -u wireproxy -f"
+        return 1
+    fi
+    
+    echo -e ""
+    echo -e "${Info} ===== WireProxy 安装完成 ====="
+    echo -e ""
+    echo -e " SOCKS5 代理: ${Cyan}127.0.0.1:1080${Reset}"
+    echo -e ""
+    echo -e " 服务管理:"
+    echo -e "   启动: systemctl start wireproxy"
+    echo -e "   停止: systemctl stop wireproxy"
+    echo -e "   状态: systemctl status wireproxy"
+    echo -e ""
+    echo -e " 配置文件: $WIREPROXY_CONFIG"
+    echo -e ""
+}
+
 # ==================== WARP+ 升级 ====================
 upgrade_warp_plus() {
     echo -e "${Info} WARP+ 升级"
@@ -1047,43 +1201,45 @@ EOF
         echo -e ""
         
         echo -e "${Green}==================== WARP 管理 ====================${Reset}"
-        echo -e " ${Green}1.${Reset}  一键安装 WARP"
-        echo -e " ${Green}2.${Reset}  卸载 WARP"
+        echo -e " ${Green}1.${Reset}  一键安装 WARP ${Yellow}(传统模式)${Reset}"
+        echo -e " ${Green}2.${Reset}  一键安装 WARP ${Cyan}(WireProxy 容器模式)${Reset}"
+        echo -e " ${Green}3.${Reset}  卸载 WARP"
         echo -e "${Green}---------------------------------------------------${Reset}"
-        echo -e " ${Green}3.${Reset}  下载 wgcf"
-        echo -e " ${Green}4.${Reset}  注册账户"
-        echo -e " ${Green}5.${Reset}  生成配置"
-        echo -e " ${Green}6.${Reset}  升级 WARP+"
+        echo -e " ${Green}4.${Reset}  下载 wgcf"
+        echo -e " ${Green}5.${Reset}  注册账户"
+        echo -e " ${Green}6.${Reset}  生成配置"
+        echo -e " ${Green}7.${Reset}  升级 WARP+"
         echo -e "${Green}---------------------------------------------------${Reset}"
-        echo -e " ${Green}7.${Reset}  启动 WARP"
-        echo -e " ${Green}8.${Reset}  停止 WARP"
-        echo -e " ${Green}9.${Reset}  重启 WARP"
-        echo -e " ${Green}10.${Reset} 查看状态"
+        echo -e " ${Green}8.${Reset}  启动 WARP"
+        echo -e " ${Green}9.${Reset}  停止 WARP"
+        echo -e " ${Green}10.${Reset} 重启 WARP"
+        echo -e " ${Green}11.${Reset} 查看状态"
         echo -e "${Green}---------------------------------------------------${Reset}"
-        echo -e " ${Green}11.${Reset} 查看当前 IP"
-        echo -e " ${Green}12.${Reset} 流媒体解锁检测"
+        echo -e " ${Green}12.${Reset} 查看当前 IP"
+        echo -e " ${Green}13.${Reset} 流媒体解锁检测"
         echo -e "${Green}---------------------------------------------------${Reset}"
-        echo -e " ${Green}13.${Reset} ${Cyan}Swap 管理${Reset} (小内存必备)"
+        echo -e " ${Green}14.${Reset} ${Cyan}Swap 管理${Reset} (小内存必备)"
         echo -e "${Green}---------------------------------------------------${Reset}"
         echo -e " ${Green}0.${Reset}  返回"
         echo -e "${Green}========================================================${Reset}"
         
-        read -p " 请选择 [0-13]: " choice
+        read -p " 请选择 [0-14]: " choice
         
         case "$choice" in
             1) quick_install ;;
-            2) uninstall_warp ;;
-            3) download_wgcf ;;
-            4) register_warp ;;
-            5) generate_config ;;
-            6) upgrade_warp_plus ;;
-            7) start_warp ;;
-            8) stop_warp ;;
-            9) restart_warp ;;
-            10) status_warp ;;
-            11) show_ip ;;
-            12) check_streaming ;;
-            13) manage_swap_menu ;;
+            2) install_wireproxy ;;
+            3) uninstall_warp ;;
+            4) download_wgcf ;;
+            5) register_warp ;;
+            6) generate_config ;;
+            7) upgrade_warp_plus ;;
+            8) start_warp ;;
+            9) stop_warp ;;
+            10) restart_warp ;;
+            11) status_warp ;;
+            12) show_ip ;;
+            13) check_streaming ;;
+            14) manage_swap_menu ;;
             0) return 0 ;;
             *) echo -e "${Error} 无效选择" ;;
         esac
