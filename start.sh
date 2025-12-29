@@ -869,10 +869,31 @@ SWAP_EOF
                                 if [ "$(id -u)" -ne 0 ]; then
                                     echo -e "${Error} 启用 Swap 需要 root 权限"
                                 else
-                                    if [ -f /swapfile ]; then
-                                        swapon /swapfile 2>/dev/null && echo -e "${Info} Swap 已启用" || echo -e "${Error} 启用失败"
+                                    echo -e ""
+                                    # 检查 swapfile 是否存在
+                                    if [ ! -f /swapfile ]; then
+                                        echo -e "${Warning} /swapfile 不存在，请先创建 Swap"
                                     else
-                                        echo -e "${Warning} Swap 文件不存在，请先创建"
+                                        # 检查是否已经启用
+                                        if swapon --show 2>/dev/null | grep -q "/swapfile"; then
+                                            echo -e "${Warning} Swap 已经是启用状态"
+                                        else
+                                            # 尝试启用
+                                            echo -e "${Info} 正在启用 /swapfile ..."
+                                            local swap_result=$(swapon /swapfile 2>&1)
+                                            if [ $? -eq 0 ]; then
+                                                echo -e "${Info} Swap 启用成功!"
+                                                free -h 2>/dev/null | head -3
+                                            else
+                                                echo -e "${Error} 启用失败"
+                                                echo -e "${Warning} 错误信息: ${swap_result}"
+                                                echo -e ""
+                                                echo -e "${Tip} 可能的原因:"
+                                                echo -e "  1. swapfile 未正确格式化，尝试: mkswap /swapfile"
+                                                echo -e "  2. 权限问题，确保权限为 600: chmod 600 /swapfile"
+                                                echo -e "  3. 文件系统不支持 swap"
+                                            fi
+                                        fi
                                     fi
                                 fi
                                 ;;
@@ -881,7 +902,25 @@ SWAP_EOF
                                 if [ "$(id -u)" -ne 0 ]; then
                                     echo -e "${Error} 停止 Swap 需要 root 权限"
                                 else
-                                    swapoff -a 2>/dev/null && echo -e "${Info} Swap 已停止" || echo -e "${Error} 停止失败"
+                                    echo -e ""
+                                    # 检查是否有活动的 swap
+                                    local active_swap=$(swapon --show 2>/dev/null)
+                                    if [ -z "$active_swap" ]; then
+                                        echo -e "${Warning} 当前没有启用的 Swap"
+                                    else
+                                        echo -e "${Info} 当前活动的 Swap:"
+                                        echo "$active_swap"
+                                        echo -e ""
+                                        echo -e "${Info} 正在停止所有 Swap ..."
+                                        local swapoff_result=$(swapoff -a 2>&1)
+                                        if [ $? -eq 0 ]; then
+                                            echo -e "${Info} Swap 已停止"
+                                        else
+                                            echo -e "${Error} 停止失败"
+                                            echo -e "${Warning} 错误信息: ${swapoff_result}"
+                                            echo -e "${Tip} 可能有进程正在使用 Swap，请检查内存使用情况"
+                                        fi
+                                    fi
                                 fi
                                 ;;
                             5)
