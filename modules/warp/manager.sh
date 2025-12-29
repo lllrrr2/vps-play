@@ -347,6 +347,26 @@ EOF
 install_deps() {
     echo -e "${Info} 安装依赖..."
     
+    # 检测内存，小内存时提醒
+    local total_mem=$(free -m 2>/dev/null | awk '/^Mem:/{print $2}')
+    local total_swap=$(free -m 2>/dev/null | awk '/^Swap:/{print $2}')
+    total_mem=${total_mem:-512}
+    total_swap=${total_swap:-0}
+    
+    local total_available=$((total_mem + total_swap))
+    
+    if [ "$total_available" -lt 256 ]; then
+        echo -e ""
+        echo -e "${Warning} 内存 + Swap 仅 ${Cyan}${total_available}MB${Reset}，可能导致安装失败"
+        echo -e "${Tip} 建议先创建 Swap (菜单选项 13)"
+        echo -e ""
+        read -p "是否继续安装? [y/N]: " continue_install
+        if [[ ! $continue_install =~ ^[Yy]$ ]]; then
+            echo -e "${Warning} 已取消，请先创建 Swap"
+            return 1
+        fi
+    fi
+    
     case "$OS_DISTRO" in
         debian|ubuntu)
             apt-get update
@@ -376,8 +396,6 @@ install_deps() {
 
 # ==================== 下载 wgcf ====================
 download_wgcf() {
-    echo -e "${Info} 下载 wgcf v${WGCF_VERSION}..."
-    
     local os_type="linux"
     [ "$OS_TYPE" = "freebsd" ] && os_type="freebsd"
     
@@ -387,7 +405,74 @@ download_wgcf() {
         armv7) arch_type="armv7" ;;
     esac
     
-    local url="https://github.com/ViRb3/wgcf/releases/download/v${WGCF_VERSION}/wgcf_${WGCF_VERSION}_${os_type}_${arch_type}"
+    local filename="wgcf_${WGCF_VERSION}_${os_type}_${arch_type}"
+    local url="https://github.com/ViRb3/wgcf/releases/download/v${WGCF_VERSION}/${filename}"
+    
+    # 检测内存大小
+    local total_mem=$(free -m 2>/dev/null | awk '/^Mem:/{print $2}')
+    total_mem=${total_mem:-512}
+    
+    # 如果内存小于 256MB，提示手动上传
+    if [ "$total_mem" -lt 256 ]; then
+        echo -e ""
+        echo -e "${Warning} 检测到内存较小: ${Cyan}${total_mem}MB${Reset}"
+        echo -e "${Warning} 小内存服务器下载/解压可能会失败"
+        echo -e ""
+        echo -e "${Tip} 请在本地下载 wgcf 并手动上传到服务器:"
+        echo -e ""
+        echo -e " ${Green}下载地址:${Reset}"
+        echo -e "   ${Cyan}${url}${Reset}"
+        echo -e ""
+        echo -e " ${Green}上传位置:${Reset}"
+        echo -e "   ${Cyan}${WGCF_BIN}${Reset}"
+        echo -e ""
+        echo -e " ${Green}上传方法:${Reset}"
+        echo -e "   1. 在本地电脑下载上述文件"
+        echo -e "   2. 使用 SCP/SFTP 上传到服务器:"
+        echo -e "      ${Yellow}scp ${filename} root@你的IP:${WGCF_BIN}${Reset}"
+        echo -e "   3. 或使用 rz 命令 (如果已安装 lrzsz):"
+        echo -e "      ${Yellow}rz -be > ${WGCF_BIN}${Reset}"
+        echo -e ""
+        
+        read -p "文件已上传完成? 按回车确认，或输入 n 取消: " upload_confirm
+        
+        if [[ $upload_confirm =~ ^[Nn]$ ]]; then
+            echo -e "${Warning} 已取消"
+            return 1
+        fi
+        
+        # 检查文件是否存在
+        if [ ! -f "$WGCF_BIN" ]; then
+            echo -e "${Error} 未找到文件: $WGCF_BIN"
+            echo -e "${Tip} 请确保已正确上传文件"
+            return 1
+        fi
+        
+        # 检查文件大小
+        local file_size=$(stat -c%s "$WGCF_BIN" 2>/dev/null || stat -f%z "$WGCF_BIN" 2>/dev/null)
+        if [ -z "$file_size" ] || [ "$file_size" -lt 1000000 ]; then
+            echo -e "${Warning} 文件大小异常 (${file_size:-0} bytes)，可能上传不完整"
+            read -p "继续? [y/N]: " continue_choice
+            [[ ! $continue_choice =~ ^[Yy]$ ]] && return 1
+        fi
+        
+        # 设置执行权限
+        chmod +x "$WGCF_BIN"
+        echo -e "${Info} 已设置执行权限"
+        
+        # 验证文件
+        if "$WGCF_BIN" --version &>/dev/null; then
+            echo -e "${Info} wgcf 验证成功"
+            return 0
+        else
+            echo -e "${Error} wgcf 文件无法执行，请检查是否下载了正确的版本"
+            echo -e "${Tip} 确保下载的是 ${os_type} ${arch_type} 版本"
+            return 1
+        fi
+    fi
+    
+    # 内存足够，正常下载
+    echo -e "${Info} 下载 wgcf v${WGCF_VERSION}..."
     
     if curl -sL "$url" -o "$WGCF_BIN"; then
         chmod +x "$WGCF_BIN"
@@ -395,6 +480,8 @@ download_wgcf() {
         return 0
     else
         echo -e "${Error} wgcf 下载失败"
+        echo -e "${Tip} 如果下载失败，请尝试手动下载:"
+        echo -e "   ${Cyan}${url}${Reset}"
         return 1
     fi
 }
