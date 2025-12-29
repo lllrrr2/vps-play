@@ -187,6 +187,29 @@ ask_warp_outbound() {
         if init_warp_config; then
             WARP_ENABLED=true
             echo -e "${Info} WARP 出站已启用"
+            
+            # 检查是否已有优选 Endpoint
+            local warp_endpoint_file="$HOME/.vps-play/warp/data/endpoint"
+            if [ ! -f "$warp_endpoint_file" ]; then
+                echo -e ""
+                echo -e "${Tip} 检测到尚未进行 Endpoint 优选"
+                echo -e "${Tip} 优选可以找到最佳的 WARP 连接点，提升速度"
+                read -p "是否进行 Endpoint IP 优选? [y/N]: " do_optimize
+                
+                if [[ "$do_optimize" =~ ^[Yy]$ ]]; then
+                    # 调用 WARP 模块的优选函数
+                    local warp_manager="$VPSPLAY_DIR/modules/warp/manager.sh"
+                    if [ -f "$warp_manager" ]; then
+                        source "$warp_manager"
+                        run_endpoint_optimize false
+                    else
+                        echo -e "${Warning} WARP 模块未找到，跳过优选"
+                    fi
+                fi
+            else
+                local current_ep=$(cat "$warp_endpoint_file" 2>/dev/null)
+                echo -e "${Info} 使用已保存的优选 Endpoint: ${Cyan}$current_ep${Reset}"
+            fi
         else
             WARP_ENABLED=false
             echo -e "${Warning} WARP 配置失败，将使用直连出站"
@@ -196,8 +219,28 @@ ask_warp_outbound() {
     fi
 }
 
-# 获取 WARP Endpoint 配置 (检测网络环境选择最佳 Endpoint)
+# 获取 WARP Endpoint 配置 (优先使用 WARP 模块的优选结果)
 get_warp_endpoint() {
+    # 优先读取 WARP 模块保存的优选 Endpoint
+    local warp_endpoint_file="$HOME/.vps-play/warp/data/endpoint"
+    if [ -f "$warp_endpoint_file" ]; then
+        local saved_ep=$(cat "$warp_endpoint_file" 2>/dev/null)
+        if [ -n "$saved_ep" ]; then
+            # 提取 IP 部分 (去除端口)
+            if echo "$saved_ep" | grep -q "]:"; then
+                # IPv6 格式 [ip]:port
+                echo "$saved_ep" | sed 's/\]:.*/]/' | sed 's/^\[//' | sed 's/\]$//'
+            elif echo "$saved_ep" | grep -q ":"; then
+                # IPv4 格式 ip:port
+                echo "$saved_ep" | cut -d: -f1
+            else
+                echo "$saved_ep"
+            fi
+            return 0
+        fi
+    fi
+    
+    # 回退: 检测网络环境选择默认 Endpoint
     local has_ipv4=false
     local has_ipv6=false
     
@@ -215,7 +258,7 @@ get_warp_endpoint() {
         # 纯 IPv6 环境
         echo "2606:4700:d0::a29f:c001"
     else
-        # IPv4 或双栈，使用优选 IP
+        # IPv4 或双栈，使用默认 IP
         echo "162.159.192.1"
     fi
 }
@@ -2811,12 +2854,13 @@ EOF
         echo -e "${Green}---------------------------------------------------${Reset}"
         echo -e " ${Green}12.${Reset} 查看节点信息"
         echo -e " ${Green}13.${Reset} 查看配置文件"
-        echo -e " ${Green}14.${Reset} 卸载 sing-box"
+        echo -e " ${Green}14.${Reset} ${Cyan}配置 WARP 出站${Reset}"
+        echo -e " ${Green}15.${Reset} 卸载 sing-box"
         echo -e "${Green}---------------------------------------------------${Reset}"
         echo -e " ${Green}0.${Reset}  返回主菜单"
         echo -e "${Green}========================================================${Reset}"
         
-        read -p " 请选择 [0-14]: " choice
+        read -p " 请选择 [0-15]: " choice
         
         case "$choice" in
             1) install_hysteria2 ;;
@@ -2832,7 +2876,17 @@ EOF
             11) status_singbox ;;
             12) show_node_info ;;
             13) view_config ;;
-            14) uninstall_singbox ;;
+            14)
+                # 调用 WARP 模块的函数
+                local warp_manager="$VPSPLAY_DIR/modules/warp/manager.sh"
+                if [ -f "$warp_manager" ]; then
+                    source "$warp_manager"
+                    configure_existing_warp_outbound
+                else
+                    echo -e "${Error} WARP 模块未找到"
+                fi
+                ;;
+            15) uninstall_singbox ;;
             0) return 0 ;;
             *) echo -e "${Error} 无效选择" ;;
         esac
