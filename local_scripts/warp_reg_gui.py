@@ -81,15 +81,40 @@ class WarpKeyGenApp:
         else:
             self.log(f"已检测到 wgcf.exe")
 
+    def get_latest_version(self):
+        try:
+            url = "https://api.github.com/repos/ViRb3/wgcf/releases/latest"
+            proxies = {}
+            if self.proxy_var.get():
+                proxies = {"http": self.proxy_var.get(), "https": self.proxy_var.get()}
+            
+            r = requests.get(url, proxies=proxies, timeout=10)
+            if r.status_code == 200:
+                data = r.json()
+                tag = data.get("tag_name", "v2.2.22")
+                # 确保去掉 v 前缀用于文件名构建 (如果 release 文件名不带 v)
+                # 实际上 wgcf 文件名格式是 wgcf_2.2.22_windows_amd64.exe (没有 v)
+                return tag
+            return "v2.2.22"
+        except:
+            return "v2.2.22"
+
     def download_wgcf(self):
-        url = "https://github.com/ViRb3/wgcf/releases/latest/download/wgcf_windows_amd64.exe"
+        # 1. 获取版本
+        tag_version = self.get_latest_version() # 例如 v2.2.22
+        # 处理版本号：文件名通常不带 v，例如 wgcf_2.2.22_windows_amd64.exe
+        raw_version = tag_version.lstrip('v')
+        
+        filename = f"wgcf_{raw_version}_windows_amd64.exe"
+        url = f"https://github.com/ViRb3/wgcf/releases/download/{tag_version}/{filename}"
+        
         proxies = {}
         if self.proxy_var.get():
             proxies = {"http": self.proxy_var.get(), "https": self.proxy_var.get()}
             self.log(f"使用代理下载: {self.proxy_var.get()}")
         
         try:
-            self.log("正在下载 wgcf.exe (GitHub)...")
+            self.log(f"正在下载 wgcf.exe ({tag_version})...")
             r = requests.get(url, proxies=proxies, stream=True, timeout=30)
             r.raise_for_status()
             with open(self.wgcf_path, 'wb') as f:
