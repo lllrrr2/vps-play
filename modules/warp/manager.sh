@@ -1107,6 +1107,129 @@ SERVICE_EOF
     echo -e ""
     echo -e " 配置文件: $WIREPROXY_CONFIG"
     echo -e ""
+    
+    # 询问是否配置 sing-box 出口代理
+    echo -e "${Tip} 是否为 sing-box 启用 WARP 出口代理?"
+    echo -e "     (让 sing-box 的流量通过 WARP 出站)"
+    echo -e ""
+    read -p "配置 sing-box 出口代理? [y/N]: " config_singbox
+    
+    if [[ $config_singbox =~ ^[Yy]$ ]]; then
+        configure_singbox_warp_outbound
+    fi
+}
+
+# 配置 sing-box WARP 出口代理
+configure_singbox_warp_outbound() {
+    echo -e ""
+    echo -e "${Info} 配置 sing-box WARP 出口代理..."
+    
+    # 检查 sing-box 配置文件
+    local singbox_config=""
+    local possible_paths=(
+        "$HOME/.vps-play/singbox/config.json"
+        "/etc/sing-box/config.json"
+        "/usr/local/etc/sing-box/config.json"
+    )
+    
+    for path in "${possible_paths[@]}"; do
+        if [ -f "$path" ]; then
+            singbox_config="$path"
+            break
+        fi
+    done
+    
+    if [ -z "$singbox_config" ]; then
+        echo -e "${Warning} 未找到 sing-box 配置文件"
+        echo -e "${Tip} 请手动添加以下出站配置到 sing-box:"
+        echo -e ""
+        echo -e "${Cyan}"
+        cat << 'SINGBOX_EXAMPLE'
+{
+  "outbounds": [
+    {
+      "type": "socks",
+      "tag": "warp-out",
+      "server": "127.0.0.1",
+      "server_port": 1080
+    }
+  ],
+  "route": {
+    "final": "warp-out"
+  }
+}
+SINGBOX_EXAMPLE
+        echo -e "${Reset}"
+        return 0
+    fi
+    
+    echo -e "${Info} 找到配置文件: $singbox_config"
+    
+    # 备份原配置
+    cp "$singbox_config" "${singbox_config}.bak.$(date +%Y%m%d%H%M%S)"
+    echo -e "${Info} 已备份原配置"
+    
+    # 检查是否已有 warp 出站
+    if grep -q '"tag".*:.*"warp' "$singbox_config" 2>/dev/null; then
+        echo -e "${Warning} 配置中已存在 WARP 相关出站"
+        read -p "是否覆盖? [y/N]: " overwrite
+        [[ ! $overwrite =~ ^[Yy]$ ]] && return 0
+    fi
+    
+    # 检查是否有 jq
+    if ! command -v jq &>/dev/null; then
+        echo -e "${Warning} 未安装 jq，无法自动修改配置"
+        echo -e "${Tip} 请手动添加以下出站配置:"
+        echo -e ""
+        echo -e "${Cyan}"
+        cat << 'MANUAL_CONFIG'
+在 "outbounds" 数组中添加:
+{
+  "type": "socks",
+  "tag": "warp-out",
+  "server": "127.0.0.1",
+  "server_port": 1080
+}
+
+将 "route" 中的 "final" 改为 "warp-out"
+MANUAL_CONFIG
+        echo -e "${Reset}"
+        return 0
+    fi
+    
+    # 使用 jq 添加 WARP 出站
+    local warp_outbound='{"type":"socks","tag":"warp-out","server":"127.0.0.1","server_port":1080}'
+    
+    # 添加出站并设置为 final
+    local new_config=$(jq --argjson warp "$warp_outbound" '
+        # 添加 warp 出站到 outbounds 数组
+        .outbounds = (.outbounds // []) + [$warp] |
+        # 如果没有 route，创建一个
+        .route = (.route // {}) |
+        # 设置 final 为 warp-out
+        .route.final = "warp-out"
+    ' "$singbox_config" 2>/dev/null)
+    
+    if [ -n "$new_config" ]; then
+        echo "$new_config" > "$singbox_config"
+        echo -e "${Info} sing-box 配置已更新"
+        
+        # 重启 sing-box
+        echo -e "${Info} 重启 sing-box..."
+        if systemctl restart sing-box 2>/dev/null; then
+            echo -e "${Info} sing-box 已重启"
+        elif pgrep -x sing-box &>/dev/null; then
+            pkill -HUP sing-box 2>/dev/null
+            echo -e "${Info} 已发送重载信号"
+        fi
+        
+        echo -e ""
+        echo -e "${Info} sing-box 现在通过 WARP 出站"
+        echo -e "${Tip} 所有 sing-box 的流量都会使用 Cloudflare IP"
+    else
+        echo -e "${Error} 配置修改失败"
+        echo -e "${Tip} 请手动编辑: $singbox_config"
+    fi
 }
 
 # ==================== WARP+ 升级 ====================
