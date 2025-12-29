@@ -2822,9 +2822,22 @@ install_combo_internal() {
     local outbounds_json=""
     if [ "$WARP_ENABLED" = true ] && [ -n "$WARP_PRIVATE_KEY" ]; then
         local warp_endpoint=$(get_warp_endpoint)
+        local ep_ip=""
+        local ep_port="2408"
+        
+        if echo "$warp_endpoint" | grep -q "]:"; then
+            ep_ip=$(echo "$warp_endpoint" | sed 's/\]:.*/]/' | sed 's/^\[//' | sed 's/\]$//')
+            ep_port=$(echo "$warp_endpoint" | sed 's/.*\]://')
+        elif echo "$warp_endpoint" | grep -q ":"; then
+            ep_ip=$(echo "$warp_endpoint" | cut -d: -f1)
+            ep_port=$(echo "$warp_endpoint" | cut -d: -f2)
+        else
+            ep_ip="$warp_endpoint"
+        fi
+        
         local warp_ipv6="${WARP_IPV6:-2606:4700:110:8f1a:c53:a4c5:2249:1546}"
         local warp_reserved="${WARP_RESERVED:-[0,0,0]}"
-        outbounds_json="{\"type\":\"direct\",\"tag\":\"direct\"}],\"endpoints\":[{\"type\":\"wireguard\",\"tag\":\"warp-out\",\"address\":[\"172.16.0.2/32\",\"${warp_ipv6}/128\"],\"private_key\":\"${WARP_PRIVATE_KEY}\",\"peers\":[{\"address\":\"${warp_endpoint}\",\"port\":2408,\"public_key\":\"bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=\",\"allowed_ips\":[\"0.0.0.0/0\",\"::/0\"],\"reserved\":${warp_reserved}}]}],\"route\":{\"rules\":[{\"action\":\"sniff\"},{\"action\":\"resolve\",\"strategy\":\"prefer_ipv4\"}],\"final\":\"warp-out\"}"
+        outbounds_json="{\"type\":\"direct\",\"tag\":\"direct\"}],\"endpoints\":[{\"type\":\"wireguard\",\"tag\":\"warp-out\",\"address\":[\"172.16.0.2/32\",\"${warp_ipv6}/128\"],\"private_key\":\"${WARP_PRIVATE_KEY}\",\"peers\":[{\"address\":\"${ep_ip}\",\"port\":${ep_port},\"public_key\":\"bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=\",\"allowed_ips\":[\"0.0.0.0/0\",\"::/0\"],\"reserved\":${warp_reserved}}]}],\"route\":{\"rules\":[{\"action\":\"sniff\"},{\"action\":\"resolve\",\"strategy\":\"prefer_ipv4\"}],\"final\":\"warp-out\"}"
     else
         outbounds_json="{\"type\":\"direct\",\"tag\":\"direct\"}]"
     fi
