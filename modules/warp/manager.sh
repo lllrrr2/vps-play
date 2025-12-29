@@ -345,27 +345,70 @@ EOF
 
 # ==================== 安装依赖 ====================
 install_deps() {
-    echo -e "${Info} 安装依赖..."
+    echo -e "${Info} 检查依赖..."
     
-    # 检测内存，小内存时提醒
+    # 检测内存
     local total_mem=$(free -m 2>/dev/null | awk '/^Mem:/{print $2}')
     local total_swap=$(free -m 2>/dev/null | awk '/^Swap:/{print $2}')
     total_mem=${total_mem:-512}
     total_swap=${total_swap:-0}
-    
     local total_available=$((total_mem + total_swap))
     
+    # 小内存模式 (< 256MB)
     if [ "$total_available" -lt 256 ]; then
         echo -e ""
-        echo -e "${Warning} 内存 + Swap 仅 ${Cyan}${total_available}MB${Reset}，可能导致安装失败"
-        echo -e "${Tip} 建议先创建 Swap (菜单选项 13)"
+        echo -e "${Warning} ===== 小内存模式 ====="
+        echo -e "${Warning} 内存 + Swap 仅 ${Cyan}${total_available}MB${Reset}"
+        echo -e "${Warning} apt/yum 安装大型包可能会因内存不足被 Killed"
         echo -e ""
-        read -p "是否继续安装? [y/N]: " continue_install
-        if [[ ! $continue_install =~ ^[Yy]$ ]]; then
-            echo -e "${Warning} 已取消，请先创建 Swap"
+        
+        # 检查是否已有必要命令
+        local has_wg=false
+        local has_curl=true
+        
+        command -v wg &>/dev/null && has_wg=true
+        command -v curl &>/dev/null || has_curl=false
+        
+        if [ "$has_wg" = true ]; then
+            echo -e "${Info} wireguard-tools 已安装 ✓"
+        else
+            echo -e "${Error} wireguard-tools 未安装"
+            echo -e ""
+            echo -e "${Tip} 小内存服务器建议使用以下方案之一:"
+            echo -e ""
+            echo -e " ${Green}方案1:${Reset} 先创建 Swap 再安装"
+            echo -e "   选择菜单 ${Cyan}13. Swap 管理${Reset} 创建至少 256MB Swap"
+            echo -e "   然后重新运行安装"
+            echo -e ""
+            echo -e " ${Green}方案2:${Reset} 使用 Cloudflare WARP 官方客户端"
+            echo -e "   ${Cyan}curl https://pkg.cloudflareclient.com/install.sh | bash${Reset}"
+            echo -e "   官方客户端更轻量，适合小内存服务器"
+            echo -e ""
+            echo -e " ${Green}方案3:${Reset} 手动安装 wireguard-tools"
+            echo -e "   在有足够内存的机器上下载 deb 包"
+            echo -e "   然后使用 dpkg -i 手动安装"
+            echo -e ""
+            
+            read -p "是否强制继续安装 (可能失败)? [y/N]: " force_install
+            if [[ ! $force_install =~ ^[Yy]$ ]]; then
+                return 1
+            fi
+        fi
+        
+        if [ "$has_curl" = false ]; then
+            echo -e "${Error} curl 未安装，这是必需的"
             return 1
         fi
+        
+        # 如果已有 wg 命令，直接返回成功
+        if [ "$has_wg" = true ]; then
+            echo -e "${Info} 依赖检查完成"
+            return 0
+        fi
     fi
+    
+    # 正常安装模式
+    echo -e "${Info} 安装依赖..."
     
     case "$OS_DISTRO" in
         debian|ubuntu)
@@ -379,8 +422,11 @@ install_deps() {
             rm -f /var/lib/dpkg/lock 2>/dev/null
             rm -f /var/cache/apt/archives/lock 2>/dev/null
             
+            # 设置非交互模式，避免 debconf 问题
+            export DEBIAN_FRONTEND=noninteractive
+            
             apt-get update
-            apt-get install -y curl wget wireguard-tools
+            apt-get install -y --no-install-recommends curl wget wireguard-tools
             ;;
         centos|rhel|rocky|alma)
             yum install -y epel-release
