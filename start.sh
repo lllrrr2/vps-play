@@ -784,6 +784,32 @@ SWAP_EOF
                         else
                             echo -e " 交换分区: ${Red}未启用${Reset}"
                         fi
+                        
+                        # 检测容器环境
+                        local is_container=false
+                        local container_type=""
+                        if [ -f /.dockerenv ]; then
+                            is_container=true
+                            container_type="Docker"
+                        elif [ -f /run/.containerenv ]; then
+                            is_container=true
+                            container_type="Podman"
+                        elif grep -qa "lxc" /proc/1/cgroup 2>/dev/null; then
+                            is_container=true
+                            container_type="LXC"
+                        elif grep -qa "container=lxc" /proc/1/environ 2>/dev/null; then
+                            is_container=true
+                            container_type="LXC"
+                        elif [ -d /proc/vz ] && [ ! -d /proc/bc ]; then
+                            is_container=true
+                            container_type="OpenVZ"
+                        fi
+                        
+                        if [ "$is_container" = true ]; then
+                            echo -e ""
+                            echo -e " ${Yellow}⚠ 检测到容器环境: ${container_type}${Reset}"
+                            echo -e " ${Yellow}  容器通常无法创建/管理 Swap${Reset}"
+                        fi
                         echo -e ""
                         
                         echo -e "${Green}==================== Swap 管理 ====================${Reset}"
@@ -875,23 +901,33 @@ SWAP_EOF
                                         echo -e "${Warning} /swapfile 不存在，请先创建 Swap"
                                     else
                                         # 检查是否已经启用
-                                        if swapon --show 2>/dev/null | grep -q "/swapfile"; then
-                                            echo -e "${Warning} Swap 已经是启用状态"
+                                        local swap_before=$(free -m 2>/dev/null | awk '/^Swap:/{print $2}')
+                                        if [ -n "$swap_before" ] && [ "$swap_before" -gt 0 ]; then
+                                            echo -e "${Warning} Swap 已经是启用状态 (${swap_before}MB)"
                                         else
                                             # 尝试启用
                                             echo -e "${Info} 正在启用 /swapfile ..."
                                             local swap_result=$(swapon /swapfile 2>&1)
-                                            if [ $? -eq 0 ]; then
-                                                echo -e "${Info} Swap 启用成功!"
+                                            local swap_exit=$?
+                                            
+                                            # 验证是否真正启用成功
+                                            sleep 1
+                                            local swap_after=$(free -m 2>/dev/null | awk '/^Swap:/{print $2}')
+                                            
+                                            if [ -n "$swap_after" ] && [ "$swap_after" -gt 0 ]; then
+                                                echo -e "${Info} Swap 启用成功! (${swap_after}MB)"
                                                 free -h 2>/dev/null | head -3
                                             else
-                                                echo -e "${Error} 启用失败"
-                                                echo -e "${Warning} 错误信息: ${swap_result}"
+                                                echo -e "${Error} 启用失败 - Swap 未生效"
+                                                if [ -n "$swap_result" ]; then
+                                                    echo -e "${Warning} 错误信息: ${swap_result}"
+                                                fi
                                                 echo -e ""
                                                 echo -e "${Tip} 可能的原因:"
-                                                echo -e "  1. swapfile 未正确格式化，尝试: mkswap /swapfile"
-                                                echo -e "  2. 权限问题，确保权限为 600: chmod 600 /swapfile"
-                                                echo -e "  3. 文件系统不支持 swap"
+                                                echo -e "  1. ${Yellow}容器环境 (LXC/Docker/Podman) 不支持 Swap${Reset}"
+                                                echo -e "  2. swapfile 未正确格式化，尝试: mkswap /swapfile"
+                                                echo -e "  3. 权限问题，确保权限为 600: chmod 600 /swapfile"
+                                                echo -e "  4. 内核或 cgroup 限制了 swap"
                                             fi
                                         fi
                                     fi
