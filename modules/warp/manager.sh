@@ -951,13 +951,27 @@ install_wireproxy() {
     local max_retries=5
     local retry=0
     while [ $retry -lt $max_retries ]; do
-        if yes | "$wgcf_tmp" register --accept-tos 2>/dev/null; then
+        # 捕获输出
+        local reg_output=$(yes | "$wgcf_tmp" register --accept-tos 2>&1)
+        if [ $? -eq 0 ]; then
             echo -e "${Info} WARP 账户注册成功"
             break
         fi
+        
         retry=$((retry + 1))
         echo -e "${Warning} 注册失败，重试 $retry/$max_retries..."
-        sleep 2
+        
+        # 显示关键错误信息
+        if echo "$reg_output" | grep -q "429"; then
+            echo -e "${Yellow} 原因: 请求过多 (HTTP 429)，等待 5 秒...${Reset}"
+            sleep 5
+        elif echo "$reg_output" | grep -q "network"; then
+            echo -e "${Yellow} 原因: 网络连接失败${Reset}"
+            sleep 2
+        else
+            echo -e "${Yellow} 错误详情: $(echo "$reg_output" | tail -n 1)${Reset}"
+            sleep 2
+        fi
     done
     
     if [ ! -f "$wgcf_dir/wgcf-account.toml" ]; then
