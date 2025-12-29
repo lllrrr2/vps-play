@@ -942,6 +942,7 @@ install_wireproxy() {
     echo -e "${Green}步骤 2/4: 注册 WARP 账户${Reset}"
     
     local wgcf_dir="/tmp/wgcf_config"
+    rm -rf "$wgcf_dir"  # 清理旧数据，防止残留干扰
     mkdir -p "$wgcf_dir"
     cd "$wgcf_dir"
     
@@ -950,9 +951,12 @@ install_wireproxy() {
     # 注册账户 (重试5次)
     local max_retries=5
     local retry=0
+    local log_file="/tmp/wgcf_register.log"
+    
     while [ $retry -lt $max_retries ]; do
-        # 捕获输出
-        local reg_output=$(yes | "$wgcf_tmp" register --accept-tos 2>&1)
+        # 使用临时文件记录日志，避免管道导致的问题
+        yes | "$wgcf_tmp" register --accept-tos > "$log_file" 2>&1
+        
         if [ $? -eq 0 ]; then
             echo -e "${Info} WARP 账户注册成功"
             break
@@ -962,14 +966,15 @@ install_wireproxy() {
         echo -e "${Warning} 注册失败，重试 $retry/$max_retries..."
         
         # 显示关键错误信息
-        if echo "$reg_output" | grep -q "429"; then
+        if grep -q "429" "$log_file"; then
             echo -e "${Yellow} 原因: 请求过多 (HTTP 429)，等待 5 秒...${Reset}"
             sleep 5
-        elif echo "$reg_output" | grep -q "network"; then
+        elif grep -q "network" "$log_file"; then
             echo -e "${Yellow} 原因: 网络连接失败${Reset}"
             sleep 2
         else
-            echo -e "${Yellow} 错误详情: $(echo "$reg_output" | tail -n 1)${Reset}"
+            local err_msg=$(tail -n 1 "$log_file")
+            echo -e "${Yellow} 错误详情: ${err_msg}${Reset}"
             sleep 2
         fi
     done
