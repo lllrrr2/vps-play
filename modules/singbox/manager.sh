@@ -379,52 +379,48 @@ disable_warp_outbound() {
     fi
 }
 
-# 智能 WARP 优选主流程
+# 智能 WARP 优选主流程 (对齐 argosbx: 先用默认 endpoint，失败后才优选)
 smart_warp_optimize() {
-    local max_attempts=5
-    local attempt=0
-    local success=false
-    
     echo -e ""
-    echo -e "${Cyan}========== WARP 智能优选 ==========${Reset}"
+    echo -e "${Cyan}========== WARP 配置 ==========${Reset}"
     
-    # 检查是否已有优选 Endpoint
+    # 检查是否已有保存的 Endpoint
     local warp_endpoint_file="$WARP_DATA_DIR/endpoint"
     if [ -f "$warp_endpoint_file" ]; then
         local saved_ep=$(cat "$warp_endpoint_file" 2>/dev/null)
-        echo -e "${Info} 发现已保存的 Endpoint: ${Cyan}$saved_ep${Reset}"
-        echo -e "${Info} 将在节点安装后测试连通性"
-        return 0
+        if [ -n "$saved_ep" ]; then
+            echo -e "${Info} 使用已保存的 Endpoint: ${Cyan}$saved_ep${Reset}"
+            echo -e "${Cyan}=================================${Reset}"
+            return 0
+        fi
     fi
     
-    # 下载优选工具
-    if ! download_warp_speedtest; then
-        echo -e "${Warning} 无法下载优选工具，使用默认 Endpoint"
-        return 0
-    fi
+    # 使用默认 endpoint (对齐 argosbx: engage.cloudflareclient.com:2408)
+    # 根据网络环境选择 IPv4 或 IPv6
+    local default_ep=""
+    local has_ipv4=false
+    local has_ipv6=false
     
-    # 运行优选
-    if ! run_warp_speedtest; then
-        echo -e "${Warning} 优选失败，使用默认 Endpoint"
-        return 0
-    fi
+    # 检测网络环境
+    curl -s4m2 https://icanhazip.com -k >/dev/null 2>&1 && has_ipv4=true
+    curl -s6m2 https://icanhazip.com -k >/dev/null 2>&1 && has_ipv6=true
     
-    # 获取第一个最佳 endpoint 并保存
-    local best_ep=$(get_nth_endpoint 1)
-    if [ -n "$best_ep" ]; then
-        local delay=$(tail -n +2 "$WARP_SPEEDTEST_RESULT" | head -n1 | cut -d',' -f2)
-        echo -e "${Info} 最佳 Endpoint: ${Cyan}$best_ep${Reset} (延迟: ${delay}ms)"
-        
-        # 保存到 endpoint 文件
-        mkdir -p "$WARP_DATA_DIR"
-        echo "$best_ep" > "$WARP_DATA_DIR/endpoint"
-        
-        echo -e "${Info} 已保存最佳 Endpoint"
+    if [ "$has_ipv6" = true ] && [ "$has_ipv4" = false ]; then
+        # 纯 IPv6 环境
+        default_ep="[2606:4700:d0::a29f:c001]:2408"
+        echo -e "${Info} 检测到纯 IPv6 环境"
     else
-        echo -e "${Warning} 未找到可用 Endpoint，使用默认配置"
+        # IPv4 或双栈环境
+        default_ep="engage.cloudflareclient.com:2408"
     fi
     
-    echo -e "${Cyan}====================================${Reset}"
+    # 保存默认 endpoint
+    mkdir -p "$WARP_DATA_DIR"
+    echo "$default_ep" > "$WARP_DATA_DIR/endpoint"
+    
+    echo -e "${Info} 使用默认 Endpoint: ${Cyan}$default_ep${Reset}"
+    echo -e "${Tip} 启动后将自动测试连通性，失败时触发优选"
+    echo -e "${Cyan}=================================${Reset}"
     echo -e ""
 }
 
