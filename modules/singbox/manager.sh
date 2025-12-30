@@ -224,22 +224,14 @@ ask_warp_outbound() {
 }
 
 # 获取 WARP Endpoint 配置 (优先使用 WARP 模块的优选结果)
+# 获取 WARP Endpoint 配置 (优先使用 WARP 模块的优选结果)
 get_warp_endpoint() {
     # 优先读取 WARP 模块保存的优选 Endpoint
     local warp_endpoint_file="$HOME/.vps-play/warp/data/endpoint"
     if [ -f "$warp_endpoint_file" ]; then
         local saved_ep=$(cat "$warp_endpoint_file" 2>/dev/null)
         if [ -n "$saved_ep" ]; then
-            # 提取 IP 部分 (去除端口)
-            if echo "$saved_ep" | grep -q "]:"; then
-                # IPv6 格式 [ip]:port
-                echo "$saved_ep" | sed 's/\]:.*/]/' | sed 's/^\[//' | sed 's/\]$//'
-            elif echo "$saved_ep" | grep -q ":"; then
-                # IPv4 格式 ip:port
-                echo "$saved_ep" | cut -d: -f1
-            else
-                echo "$saved_ep"
-            fi
+            echo "$saved_ep"
             return 0
         fi
     fi
@@ -260,10 +252,10 @@ get_warp_endpoint() {
     
     if [ "$has_ipv6" = true ] && [ "$has_ipv4" = false ]; then
         # 纯 IPv6 环境
-        echo "2606:4700:d0::a29f:c001"
+        echo "[2606:4700:d0::a29f:c001]:2408"
     else
         # IPv4 或双栈，使用默认 IP
-        echo "162.159.192.1"
+        echo "162.159.192.1:2408"
     fi
 }
 
@@ -279,6 +271,22 @@ get_outbounds_config() {
         local warp_endpoint=$(get_warp_endpoint)
         local warp_ipv6="${WARP_IPV6:-2606:4700:110:8f1a:c53:a4c5:2249:1546}"
         local warp_reserved="${WARP_RESERVED:-[0,0,0]}"
+        
+        # 解析 Endpoint IP 和端口
+        local ep_ip=""
+        local ep_port="2408"
+        
+        if echo "$warp_endpoint" | grep -q "]:"; then
+            # IPv6 格式 [ip]:port
+            ep_ip=$(echo "$warp_endpoint" | sed 's/\]:.*/]/' | sed 's/^\[//' | sed 's/\]$//')
+            ep_port=$(echo "$warp_endpoint" | sed 's/.*\]://')
+        elif echo "$warp_endpoint" | grep -q ":"; then
+            # IPv4 格式 ip:port
+            ep_ip=$(echo "$warp_endpoint" | cut -d: -f1)
+            ep_port=$(echo "$warp_endpoint" | cut -d: -f2)
+        else
+            ep_ip="$warp_endpoint"
+        fi
         
         # 使用 Sing-box 1.12+ 的 endpoints 字段 (argosbx 方案)
         cat << WARP_EOF
@@ -299,8 +307,8 @@ get_outbounds_config() {
       "private_key": "${WARP_PRIVATE_KEY}",
       "peers": [
         {
-          "address": "${warp_endpoint}",
-          "port": 2408,
+          "address": "${ep_ip}",
+          "port": ${ep_port},
           "public_key": "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=",
           "allowed_ips": [
             "0.0.0.0/0",
