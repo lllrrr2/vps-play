@@ -169,7 +169,8 @@ init_warp_config() {
         echo -e "${Info} WARP 配置获取成功 (备用)"
     fi
     
-    # 保存配置供后续使用
+    # 保存配置供后续使用 (确保目录存在)
+    mkdir -p "$WARP_DATA_DIR"
     echo "$WARP_PRIVATE_KEY" > "$WARP_DATA_DIR/private_key"
     echo "$WARP_RESERVED" > "$WARP_DATA_DIR/reserved"
     echo "$WARP_IPV6" > "$WARP_DATA_DIR/ipv6"
@@ -268,8 +269,9 @@ get_warp_endpoint() {
 
 # 生成 outbounds 和 endpoints 配置
 # 参数: $1 = 是否启用 WARP (true/false)
-# 注意: Sing-box 1.12+ 的 route.final 只能指向 outbound，不能直接指向 endpoint
-# 因此需要创建一个 outbound 通过 detour 引用 endpoint
+# 参照 argosbx 的实现：
+# - endpoints 中的 wireguard tag 为 warp-out
+# - route.final 直接指向 warp-out (endpoint)
 get_outbounds_config() {
     local enable_warp=${1:-false}
     
@@ -278,15 +280,9 @@ get_outbounds_config() {
         local warp_ipv6="${WARP_IPV6:-2606:4700:110:8f1a:c53:a4c5:2249:1546}"
         local warp_reserved="${WARP_RESERVED:-[0,0,0]}"
         
-        # 使用 Sing-box 1.12+ 的 endpoints 字段
-        # outbound "warp-out" 通过 detour 引用 endpoint "warp-ep"
+        # 使用 Sing-box 1.12+ 的 endpoints 字段 (argosbx 方案)
         cat << WARP_EOF
   "outbounds": [
-    {
-      "type": "direct",
-      "tag": "warp-out",
-      "detour": "warp-ep"
-    },
     {
       "type": "direct",
       "tag": "direct"
@@ -295,7 +291,7 @@ get_outbounds_config() {
   "endpoints": [
     {
       "type": "wireguard",
-      "tag": "warp-ep",
+      "tag": "warp-out",
       "address": [
         "172.16.0.2/32",
         "${warp_ipv6}/128"
@@ -2845,9 +2841,8 @@ install_combo_internal() {
         
         local warp_ipv6="${WARP_IPV6:-2606:4700:110:8f1a:c53:a4c5:2249:1546}"
         local warp_reserved="${WARP_RESERVED:-[0,0,0]}"
-        # 注意: route.final 只能指向 outbound，不能直接指向 endpoint
-        # 所以需要创建一个 warp-out outbound 通过 detour 引用 warp-ep endpoint
-        outbounds_json="{\"type\":\"direct\",\"tag\":\"warp-out\",\"detour\":\"warp-ep\"},{\"type\":\"direct\",\"tag\":\"direct\"}],\"endpoints\":[{\"type\":\"wireguard\",\"tag\":\"warp-ep\",\"address\":[\"172.16.0.2/32\",\"${warp_ipv6}/128\"],\"private_key\":\"${WARP_PRIVATE_KEY}\",\"peers\":[{\"address\":\"${ep_ip}\",\"port\":${ep_port},\"public_key\":\"bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=\",\"allowed_ips\":[\"0.0.0.0/0\",\"::/0\"],\"reserved\":${warp_reserved}}]}],\"route\":{\"rules\":[{\"action\":\"sniff\"},{\"action\":\"resolve\",\"strategy\":\"prefer_ipv4\"}],\"final\":\"warp-out\"}"
+        # 使用 argosbx 的正确格式：endpoint tag 为 warp-out，route.final 直接指向它
+        outbounds_json="{\"type\":\"direct\",\"tag\":\"direct\"}],\"endpoints\":[{\"type\":\"wireguard\",\"tag\":\"warp-out\",\"address\":[\"172.16.0.2/32\",\"${warp_ipv6}/128\"],\"private_key\":\"${WARP_PRIVATE_KEY}\",\"peers\":[{\"address\":\"${ep_ip}\",\"port\":${ep_port},\"public_key\":\"bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=\",\"allowed_ips\":[\"0.0.0.0/0\",\"::/0\"],\"reserved\":${warp_reserved}}]}],\"route\":{\"rules\":[{\"action\":\"sniff\"},{\"action\":\"resolve\",\"strategy\":\"prefer_ipv4\"}],\"final\":\"warp-out\"}"
     else
         outbounds_json="{\"type\":\"direct\",\"tag\":\"direct\"}]"
     fi

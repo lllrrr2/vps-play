@@ -782,18 +782,13 @@ generate_warp_singbox_config() {
   "outbounds": [
     {
       "type": "direct",
-      "tag": "warp-out",
-      "detour": "warp-ep"
-    },
-    {
-      "type": "direct",
       "tag": "direct"
     }
   ],
   "endpoints": [
     {
       "type": "wireguard",
-      "tag": "warp-ep",
+      "tag": "warp-out",
       "address": [
         "172.16.0.2/32",
         "${warp_ipv6}/128"
@@ -1247,11 +1242,11 @@ add_warp_outbound_singbox() {
     
     # 使用 jq 修改配置 (如果可用)
     if command -v jq &>/dev/null; then
-        # 构造 WARP endpoint 配置 (tag 为 warp-ep)
+        # 构造 WARP endpoint 配置 (tag 为 warp-out，argosbx 方案)
         local warp_endpoint_json=$(cat <<WARP_EP_EOF
 {
   "type": "wireguard",
-  "tag": "warp-ep",
+  "tag": "warp-out",
   "address": ["172.16.0.2/32", "${warp_ipv6}/128"],
   "private_key": "${WARP_PRIVATE_KEY}",
   "peers": [{
@@ -1265,30 +1260,20 @@ add_warp_outbound_singbox() {
 WARP_EP_EOF
 )
         
-        # 构造 WARP outbound 配置 (通过 detour 引用 endpoint)
-        local warp_outbound_json='{"type": "direct", "tag": "warp-out", "detour": "warp-ep"}'
-        
-        # 读取现有配置并添加 WARP
-        # 注意: route.final 只能指向 outbound，不能直接指向 endpoint
-        # 所以需要创建一个 warp-out outbound 通过 detour 引用 warp-ep endpoint
-        local new_config=$(jq --argjson warp_ep "$warp_endpoint_json" --argjson warp_out "$warp_outbound_json" '
+        # 读取现有配置并添加 WARP (argosbx 方案)
+        # route.final 直接指向 endpoint 的 warp-out
+        local new_config=$(jq --argjson warp_ep "$warp_endpoint_json" '
             # 确保有 outbounds 数组
             .outbounds = (.outbounds // []) |
             
-            # 移除已有的 warp-out (如果有)
-            .outbounds = [.outbounds[] | select(.tag != "warp-out")] |
-            
-            # 添加 warp-out outbound (通过 detour 引用 endpoint)
-            .outbounds = [$warp_out] + .outbounds |
-            
             # 确保有 direct 出站
-            (if any(.outbounds[]; .tag == "direct") then . else .outbounds = .outbounds + [{type: "direct", tag: "direct"}] end) |
+            (if any(.outbounds[]; .tag == "direct") then . else .outbounds = [{type: "direct", tag: "direct"}] + .outbounds end) |
             
-            # 添加 endpoints 数组 (移除已有的 warp-ep)
-            .endpoints = ((.endpoints // []) | [.[] | select(.tag != "warp-ep" and .tag != "warp-out")]) |
+            # 添加 endpoints 数组 (移除已有的 warp-out)
+            .endpoints = ((.endpoints // []) | [.[] | select(.tag != "warp-out")]) |
             .endpoints = .endpoints + [$warp_ep] |
             
-            # 设置路由 final 为 warp-out (这是一个 outbound)
+            # 设置路由 final 为 warp-out (endpoint)
             .route = (.route // {}) |
             .route.final = "warp-out" |
             
@@ -1321,18 +1306,16 @@ WARP_EP_EOF
     # 备用方案：使用 sed 直接修改 JSON (简单但有限)
     echo -e "${Info} 使用 sed 方式修改配置..."
     
-    # 创建 WARP outbound 和 endpoint JSON 块
-    # 注意: route.final 指向 warp-out (outbound)，warp-out 通过 detour 引用 warp-ep (endpoint)
+    # 创建 WARP endpoint JSON 块 (argosbx 方案)
     local warp_block=$(cat <<WARP_BLOCK_EOF
   ],
   "outbounds": [
-    {"type": "direct", "tag": "warp-out", "detour": "warp-ep"},
     {"type": "direct", "tag": "direct"}
   ],
   "endpoints": [
     {
       "type": "wireguard",
-      "tag": "warp-ep",
+      "tag": "warp-out",
       "address": ["172.16.0.2/32", "${warp_ipv6}/128"],
       "private_key": "${WARP_PRIVATE_KEY}",
       "peers": [{
@@ -1421,17 +1404,10 @@ WARP_BLOCK_EOF
     echo -e ""
     echo -e "${Cyan}"
     cat <<MANUAL_EOF
-在 "outbounds" 数组中添加:
-{
-  "type": "direct",
-  "tag": "warp-out",
-  "detour": "warp-ep"
-}
-
 在 "endpoints" 数组中添加:
 {
   "type": "wireguard",
-  "tag": "warp-ep",
+  "tag": "warp-out",
   "address": ["172.16.0.2/32", "${warp_ipv6}/128"],
   "private_key": "${WARP_PRIVATE_KEY}",
   "peers": [{
