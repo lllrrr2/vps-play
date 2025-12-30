@@ -73,14 +73,20 @@ show_ip() {
     [ -n "$ipv4" ] && echo -e " IPv4: ${Cyan}${ipv4}${Reset}" || echo -e " IPv4: ${Red}无${Reset}"
     [ -n "$ipv6" ] && echo -e " IPv6: ${Cyan}${ipv6}${Reset}" || echo -e " IPv6: ${Red}无${Reset}"
     
-    # 检测 WARP 状态
+    # 检测 VPS 直连的 WARP 状态
     local warp_status=$(curl -s4m5 https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null | grep warp | cut -d= -f2)
     case "$warp_status" in
-        on) echo -e " WARP: ${Green}已启用${Reset}" ;;
-        plus) echo -e " WARP: ${Green}WARP+ 已启用${Reset}" ;;
-        off) echo -e " WARP: ${Yellow}未启用${Reset}" ;;
-        *) echo -e " WARP: ${Red}检测失败${Reset}" ;;
+        on) echo -e " VPS直连WARP: ${Green}已启用${Reset}" ;;
+        plus) echo -e " VPS直连WARP: ${Green}WARP+ 已启用${Reset}" ;;
+        off) echo -e " VPS直连WARP: ${Yellow}未启用 (正常)${Reset}" ;;
+        *) echo -e " VPS直连WARP: ${Yellow}检测中...${Reset}" ;;
     esac
+    
+    # 检测节点是否配置了 WARP 出站
+    local singbox_conf="$HOME/.vps-play/singbox/config.json"
+    if [ -f "$singbox_conf" ] && grep -q 'warp-out' "$singbox_conf" 2>/dev/null; then
+        echo -e " 节点WARP出站: ${Green}已配置${Reset}"
+    fi
 }
 
 # ==================== WARP 配置获取 (ygkkk 方案) ====================
@@ -898,17 +904,49 @@ status_warp_singbox() {
     echo -e "${Info} WARP 状态:"
     echo -e ""
     
+    # 检测 WARP 独立代理模式
+    local warp_standalone_conf="$SINGBOX_CONF"
+    local singbox_node_conf="$HOME/.vps-play/singbox/config.json"
+    local socks_port=1080
+    [ -f "$WARP_DATA_DIR/socks_port" ] && socks_port=$(cat "$WARP_DATA_DIR/socks_port")
+    
+    # 检测运行中的 sing-box 类型
+    local warp_standalone_running=false
+    local warp_node_outbound=false
+    
     if pgrep -f "sing-box" >/dev/null 2>&1; then
-        echo -e " 运行状态: ${Green}运行中${Reset}"
+        echo -e " Sing-box: ${Green}运行中${Reset}"
         
         local pid=$(pgrep -f "sing-box" | head -1)
         echo -e " 进程 PID: ${Cyan}$pid${Reset}"
         
-        # 显示当前 Endpoint
-        local current_ep=$(get_current_endpoint)
-        echo -e " Endpoint: ${Cyan}$current_ep${Reset}"
+        # 检查是否有 SOCKS5 端口监听 (独立代理模式)
+        if netstat -tuln 2>/dev/null | grep -q ":${socks_port} " || ss -tuln 2>/dev/null | grep -q ":${socks_port} "; then
+            warp_standalone_running=true
+            echo -e " WARP独立代理: ${Green}运行中 (端口: ${socks_port})${Reset}"
+        fi
+        
+        # 检查节点配置是否使用 WARP 出站
+        if [ -f "$singbox_node_conf" ] && grep -q 'warp-out' "$singbox_node_conf" 2>/dev/null; then
+            warp_node_outbound=true
+            echo -e " 节点WARP出站: ${Green}已启用${Reset}"
+        fi
     else
-        echo -e " 运行状态: ${Red}未运行${Reset}"
+        echo -e " Sing-box: ${Red}未运行${Reset}"
+    fi
+    
+    # 显示当前 Endpoint
+    local current_ep=$(get_current_endpoint)
+    echo -e " 优选Endpoint: ${Cyan}$current_ep${Reset}"
+    
+    echo -e ""
+    
+    # 显示说明
+    if [ "$warp_standalone_running" = true ]; then
+        echo -e "${Tip} 独立代理模式: VPS本机流量可通过 socks5://127.0.0.1:${socks_port} 走WARP"
+    fi
+    if [ "$warp_node_outbound" = true ]; then
+        echo -e "${Tip} 节点出站模式: 通过节点连接的客户端流量走WARP"
     fi
     
     echo -e ""
@@ -1021,25 +1059,50 @@ uninstall_warp() {
 
 # ==================== 流媒体解锁检测 ====================
 check_streaming() {
-    echo -e "${Info} 检测流媒体解锁状态 (通过 WARP 代理)..."
+    echo -e "${Info} 检测流媒体解锁状态..."
     echo -e ""
     
     local proxy_opt=""
+    local check_mode="direct"
     local socks_port=1080
-    if [ -f "$WARP_DATA_DIR/socks_port" ]; then
-        socks_port=$(cat "$WARP_DATA_DIR/socks_port")
+    [ -f "$WARP_DATA_DIR/socks_port" ] && socks_port=$(cat "$WARP_DATA_DIR/socks_port")
+    
+    # 检测可用的 WARP 模式
+    local warp_standalone=false
+    local warp_node_outbound=false
+    local singbox_node_conf="$HOME/.vps-play/singbox/config.json"
+    
+    # 检查独立代理模式 (SOCKS5 端口)
+    if pgrep -f "sing-box" >/dev/null 2>&1; then
+        if netstat -tuln 2>/dev/null | grep -q ":${socks_port} " || ss -tuln 2>/dev/null | grep -q ":${socks_port} "; then
+            warp_standalone=true
+        fi
+        if [ -f "$singbox_node_conf" ] && grep -q 'warp-out' "$singbox_node_conf" 2>/dev/null; then
+            warp_node_outbound=true
+        fi
     fi
     
-    if pgrep -f "sing-box" >/dev/null 2>&1; then
+    # 选择检测模式
+    if [ "$warp_standalone" = true ]; then
         proxy_opt="-x socks5h://127.0.0.1:${socks_port}"
-        echo -e "${Info} 使用 WARP 代理进行检测 (端口: ${socks_port})"
+        check_mode="standalone"
+        echo -e "${Info} 使用 WARP 独立代理检测 (端口: ${socks_port})"
+    elif [ "$warp_node_outbound" = true ]; then
+        check_mode="node"
+        echo -e "${Warning} 节点已配置 WARP 出站，但 VPS 本机无法直接测试"
+        echo -e "${Tip} 请通过节点连接后访问以下地址验证:"
+        echo -e "   - https://www.cloudflare.com/cdn-cgi/trace (查看 warp=on)"
+        echo -e "   - https://ip.sb (查看出口 IP)"
+        echo -e ""
+        echo -e "以下使用 VPS 直连检测 (不经过 WARP):"
+        echo -e ""
     else
-        echo -e "${Warning} WARP 未运行，使用直连检测"
+        echo -e "${Warning} WARP 未运行，使用 VPS 直连检测"
     fi
     
     # Netflix
     echo -n " Netflix: "
-    local nf=$(curl -sLm5 $proxy_opt "https://www.netflix.com/title/81215567" 2>/dev/null)
+    local nf=$(curl -sLm8 $proxy_opt "https://www.netflix.com/title/81215567" 2>/dev/null)
     if echo "$nf" | grep -q "NSEZ-403"; then
         echo -e "${Red}未解锁${Reset}"
     elif echo "$nf" | grep -qE "page-title|Netflix"; then
@@ -1050,28 +1113,40 @@ check_streaming() {
     
     # YouTube Premium
     echo -n " YouTube: "
-    local yt=$(curl -sLm5 $proxy_opt "https://www.youtube.com/premium" 2>/dev/null)
+    local yt=$(curl -sLm8 $proxy_opt "https://www.youtube.com/premium" 2>/dev/null)
     if echo "$yt" | grep -q "Premium is not available"; then
         echo -e "${Red}无 Premium${Reset}"
-    else
+    elif [ -n "$yt" ]; then
         echo -e "${Green}可访问${Reset}"
+    else
+        echo -e "${Yellow}检测超时${Reset}"
     fi
     
     # ChatGPT
     echo -n " ChatGPT: "
-    local gpt=$(curl -sLm5 $proxy_opt "https://chat.openai.com/" -H "User-Agent: Mozilla/5.0" 2>/dev/null)
+    local gpt=$(curl -sLm8 $proxy_opt "https://chat.openai.com/" -H "User-Agent: Mozilla/5.0" 2>/dev/null)
     if echo "$gpt" | grep -qE "Sorry|unavailable|blocked"; then
         echo -e "${Red}不可用${Reset}"
-    else
+    elif [ -n "$gpt" ]; then
         echo -e "${Green}可访问${Reset}"
+    else
+        echo -e "${Yellow}检测超时${Reset}"
     fi
     
     # Google
     echo -n " Google:  "
-    if curl -sLm5 $proxy_opt "https://www.google.com" &>/dev/null; then
+    local google_result=$(curl -sLm8 $proxy_opt "https://www.google.com" 2>/dev/null)
+    if [ -n "$google_result" ]; then
         echo -e "${Green}可访问${Reset}"
     else
         echo -e "${Red}不可访问${Reset}"
+    fi
+    
+    # 如果是节点模式，显示额外提示
+    if [ "$check_mode" = "node" ]; then
+        echo -e ""
+        echo -e "${Tip} 以上结果为 VPS 直连，非 WARP 代理结果"
+        echo -e "${Tip} 要测试 WARP 解锁，请通过节点连接后在客户端测试"
     fi
 }
 
