@@ -325,14 +325,22 @@ get_outbounds_config() {
   }
 WARP_EOF
     else
-        # 默认直连出站
+        # 默认直连出站 (也需要 route 配置)
         cat << DIRECT_EOF
   "outbounds": [
     {
       "type": "direct",
       "tag": "direct"
     }
-  ]
+  ],
+  "route": {
+    "rules": [
+      {
+        "action": "sniff"
+      }
+    ],
+    "final": "direct"
+  }
 DIRECT_EOF
     fi
 }
