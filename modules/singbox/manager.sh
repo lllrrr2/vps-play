@@ -738,6 +738,7 @@ ${exp_config}  "inbounds": [
       "listen_port": $port,
       "users": [
         {
+          "name": "user",
           "password": "$password"
         }
       ],
@@ -2292,7 +2293,7 @@ install_combo() {
     local node_info=""
     local links=""
     
-    # Hysteria2 配置
+    # Hysteria2 配置 (参照官方文档)
     if [ "$install_hy2" = true ]; then
         [ -n "$inbounds" ] && inbounds="${inbounds},"
         inbounds="${inbounds}
@@ -2303,6 +2304,7 @@ install_combo() {
       \"listen_port\": ${hy2_port},
       \"users\": [
         {
+          \"name\": \"user\",
           \"password\": \"${password}\"
         }
       ],
