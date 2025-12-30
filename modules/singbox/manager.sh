@@ -192,28 +192,8 @@ ask_warp_outbound() {
             WARP_ENABLED=true
             echo -e "${Info} WARP 出站已启用"
             
-            # 检查是否已有优选 Endpoint
-            local warp_endpoint_file="$HOME/.vps-play/warp/data/endpoint"
-            if [ ! -f "$warp_endpoint_file" ]; then
-                echo -e ""
-                echo -e "${Tip} 检测到尚未进行 Endpoint 优选"
-                echo -e "${Tip} 优选可以找到最佳的 WARP 连接点，提升速度"
-                read -p "是否进行 Endpoint IP 优选? [y/N]: " do_optimize
-                
-                if [[ "$do_optimize" =~ ^[Yy]$ ]]; then
-                    # 调用 WARP 模块的优选函数
-                    local warp_manager="$VPSPLAY_DIR/modules/warp/manager.sh"
-                    if [ -f "$warp_manager" ]; then
-                        source "$warp_manager"
-                        run_endpoint_optimize false
-                    else
-                        echo -e "${Warning} WARP 模块未找到，跳过优选"
-                    fi
-                fi
-            else
-                local current_ep=$(cat "$warp_endpoint_file" 2>/dev/null)
-                echo -e "${Info} 使用已保存的优选 Endpoint: ${Cyan}$current_ep${Reset}"
-            fi
+            # 智能优选: 自动测试并找到可用的 Endpoint
+            smart_warp_optimize
         else
             WARP_ENABLED=false
             echo -e "${Warning} WARP 配置失败，将使用直连出站"
@@ -222,6 +202,309 @@ ask_warp_outbound() {
         WARP_ENABLED=false
     fi
 }
+
+# ==================== WARP 智能优选 ====================
+# CloudflareWarpSpeedTest 版本和下载地址
+WARP_SPEEDTEST_VERSION="1.5.15"
+WARP_SPEEDTEST_BIN="$SINGBOX_DIR/CloudflareWarpSpeedTest"
+WARP_SPEEDTEST_RESULT="$SINGBOX_DIR/warp_result.csv"
+
+# 下载 CloudflareWarpSpeedTest 工具
+download_warp_speedtest() {
+    if [ -f "$WARP_SPEEDTEST_BIN" ] && [ -x "$WARP_SPEEDTEST_BIN" ]; then
+        return 0
+    fi
+    
+    echo -e "${Info} 下载 WARP Endpoint 优选工具..."
+    
+    local os_type=""
+    local arch_type=""
+    
+    case "$(uname -s | tr '[:upper:]' '[:lower:]')" in
+        linux) os_type="linux" ;;
+        darwin) os_type="darwin" ;;
+        freebsd) os_type="freebsd" ;;
+        *) os_type="linux" ;;
+    esac
+    
+    case "$(uname -m)" in
+        x86_64|amd64) arch_type="amd64" ;;
+        aarch64|arm64) arch_type="arm64" ;;
+        armv7*) arch_type="armv7" ;;
+        i686|i386) arch_type="386" ;;
+        *) arch_type="amd64" ;;
+    esac
+    
+    local download_url="https://github.com/peanut996/CloudflareWarpSpeedTest/releases/download/v${WARP_SPEEDTEST_VERSION}/CloudflareWarpSpeedTest-v${WARP_SPEEDTEST_VERSION}-${os_type}-${arch_type}.tar.gz"
+    
+    local tmp_file="/tmp/warp_speedtest.tar.gz"
+    
+    if curl -sL -o "$tmp_file" "$download_url" 2>/dev/null || wget -qO "$tmp_file" "$download_url" 2>/dev/null; then
+        tar -xzf "$tmp_file" -C "$SINGBOX_DIR" 2>/dev/null
+        # 二进制文件可能在子目录中，查找并移动
+        local bin_path=$(find "$SINGBOX_DIR" -name "CloudflareWarpSpeedTest" -type f 2>/dev/null | head -n1)
+        if [ -n "$bin_path" ] && [ "$bin_path" != "$WARP_SPEEDTEST_BIN" ]; then
+            mv "$bin_path" "$WARP_SPEEDTEST_BIN"
+        fi
+        chmod +x "$WARP_SPEEDTEST_BIN"
+        rm -f "$tmp_file"
+        echo -e "${Info} 优选工具下载完成"
+        return 0
+    else
+        echo -e "${Error} 优选工具下载失败"
+        return 1
+    fi
+}
+
+# 测试 WARP 是否能连通 Google (通过 sing-box 代理)
+test_warp_connectivity() {
+    local socks_port="${1:-1080}"
+    local timeout="${2:-10}"
+    
+    # 使用 curl 通过 SOCKS5 代理测试 Google
+    if curl -x "socks5h://127.0.0.1:${socks_port}" -sI -m "$timeout" "https://www.google.com" 2>/dev/null | grep -q "200"; then
+        return 0
+    fi
+    
+    # 备用: 测试 Cloudflare
+    if curl -x "socks5h://127.0.0.1:${socks_port}" -sI -m "$timeout" "https://www.cloudflare.com" 2>/dev/null | grep -q "200"; then
+        return 0
+    fi
+    
+    return 1
+}
+
+# 运行 WARP Endpoint 优选
+run_warp_speedtest() {
+    if [ ! -f "$WARP_SPEEDTEST_BIN" ]; then
+        download_warp_speedtest || return 1
+    fi
+    
+    echo -e "${Info} 运行 Endpoint 优选 (约需 1-2 分钟)..."
+    
+    # 运行优选 (使用当前 WARP 配置)
+    cd "$SINGBOX_DIR"
+    "$WARP_SPEEDTEST_BIN" \
+        -n 100 \
+        -t 5 \
+        -c 500 \
+        -tl 300 \
+        -tlr 0.5 \
+        -p 20 \
+        -pri "$WARP_PRIVATE_KEY" \
+        -reserved "$WARP_RESERVED" \
+        -o "$WARP_SPEEDTEST_RESULT" 2>/dev/null
+    
+    if [ -f "$WARP_SPEEDTEST_RESULT" ] && [ -s "$WARP_SPEEDTEST_RESULT" ]; then
+        local count=$(tail -n +2 "$WARP_SPEEDTEST_RESULT" | wc -l)
+        echo -e "${Info} 优选完成，找到 ${Cyan}$count${Reset} 个可用 Endpoint"
+        return 0
+    else
+        echo -e "${Warning} 优选未找到可用 Endpoint"
+        return 1
+    fi
+}
+
+# 从优选结果获取第 N 个最佳 Endpoint
+get_nth_endpoint() {
+    local n=${1:-1}
+    
+    if [ ! -f "$WARP_SPEEDTEST_RESULT" ]; then
+        return 1
+    fi
+    
+    # CSV 格式: IP:Port,Latency,LossRate
+    local line=$(tail -n +2 "$WARP_SPEEDTEST_RESULT" | sed -n "${n}p")
+    if [ -n "$line" ]; then
+        echo "$line" | cut -d',' -f1
+        return 0
+    fi
+    return 1
+}
+
+# 更新 sing-box 配置中的 Endpoint
+update_singbox_warp_endpoint() {
+    local new_endpoint="$1"
+    
+    if [ ! -f "$SINGBOX_CONF" ] || [ -z "$new_endpoint" ]; then
+        return 1
+    fi
+    
+    # 解析 IP 和端口
+    local ep_ip=""
+    local ep_port="2408"
+    
+    if echo "$new_endpoint" | grep -q "]:"; then
+        # IPv6 格式 [ip]:port
+        ep_ip=$(echo "$new_endpoint" | sed 's/\]:.*/:/' | sed 's/^\[//' | sed 's/:$//')
+        ep_port=$(echo "$new_endpoint" | sed 's/.*]://')
+    elif echo "$new_endpoint" | grep -q ":"; then
+        # IPv4 格式 ip:port
+        ep_ip=$(echo "$new_endpoint" | cut -d: -f1)
+        ep_port=$(echo "$new_endpoint" | cut -d: -f2)
+    else
+        ep_ip="$new_endpoint"
+    fi
+    
+    # 使用 jq 或 sed 更新配置
+    if command -v jq &>/dev/null; then
+        local tmp_conf="${SINGBOX_CONF}.tmp"
+        jq --arg ip "$ep_ip" --argjson port "$ep_port" \
+            '.endpoints[0].peers[0].address = $ip | .endpoints[0].peers[0].port = $port' \
+            "$SINGBOX_CONF" > "$tmp_conf" && mv "$tmp_conf" "$SINGBOX_CONF"
+    else
+        # 使用 sed 替换
+        sed -i "s/\"address\": *\"[^\"]*\"/\"address\": \"$ep_ip\"/g" "$SINGBOX_CONF"
+        sed -i "s/\"port\": *[0-9]*/\"port\": $ep_port/g" "$SINGBOX_CONF"
+    fi
+    
+    # 保存到 endpoint 文件
+    mkdir -p "$WARP_DATA_DIR"
+    echo "$new_endpoint" > "$WARP_DATA_DIR/endpoint"
+    
+    return 0
+}
+
+# 禁用 WARP 出站，回退直连
+disable_warp_outbound() {
+    echo -e "${Warning} WARP 连通失败，回退到直连模式..."
+    WARP_ENABLED=false
+    
+    # 如果配置文件已存在，移除 WARP 相关配置
+    if [ -f "$SINGBOX_CONF" ] && command -v jq &>/dev/null; then
+        local tmp_conf="${SINGBOX_CONF}.tmp"
+        # 移除 endpoints 和 route，只保留 direct outbound
+        jq 'del(.endpoints) | del(.route) | .outbounds = [{"type":"direct","tag":"direct"}]' \
+            "$SINGBOX_CONF" > "$tmp_conf" && mv "$tmp_conf" "$SINGBOX_CONF"
+    fi
+}
+
+# 智能 WARP 优选主流程
+smart_warp_optimize() {
+    local max_attempts=5
+    local attempt=0
+    local success=false
+    
+    echo -e ""
+    echo -e "${Cyan}========== WARP 智能优选 ==========${Reset}"
+    
+    # 检查是否已有优选 Endpoint
+    local warp_endpoint_file="$WARP_DATA_DIR/endpoint"
+    if [ -f "$warp_endpoint_file" ]; then
+        local saved_ep=$(cat "$warp_endpoint_file" 2>/dev/null)
+        echo -e "${Info} 发现已保存的 Endpoint: ${Cyan}$saved_ep${Reset}"
+        echo -e "${Info} 将在节点安装后测试连通性"
+        return 0
+    fi
+    
+    # 下载优选工具
+    if ! download_warp_speedtest; then
+        echo -e "${Warning} 无法下载优选工具，使用默认 Endpoint"
+        return 0
+    fi
+    
+    # 运行优选
+    if ! run_warp_speedtest; then
+        echo -e "${Warning} 优选失败，使用默认 Endpoint"
+        return 0
+    fi
+    
+    # 获取第一个最佳 endpoint 并保存
+    local best_ep=$(get_nth_endpoint 1)
+    if [ -n "$best_ep" ]; then
+        local delay=$(tail -n +2 "$WARP_SPEEDTEST_RESULT" | head -n1 | cut -d',' -f2)
+        echo -e "${Info} 最佳 Endpoint: ${Cyan}$best_ep${Reset} (延迟: ${delay}ms)"
+        
+        # 保存到 endpoint 文件
+        mkdir -p "$WARP_DATA_DIR"
+        echo "$best_ep" > "$WARP_DATA_DIR/endpoint"
+        
+        echo -e "${Info} 已保存最佳 Endpoint"
+    else
+        echo -e "${Warning} 未找到可用 Endpoint，使用默认配置"
+    fi
+    
+    echo -e "${Cyan}====================================${Reset}"
+    echo -e ""
+}
+
+# 节点安装后验证 WARP 连通性 (在服务启动后调用)
+verify_warp_after_start() {
+    if [ "$WARP_ENABLED" != true ]; then
+        return 0
+    fi
+    
+    local max_attempts=5
+    local attempt=0
+    
+    echo -e ""
+    echo -e "${Info} 验证 WARP 连通性..."
+    sleep 2  # 等待服务完全启动
+    
+    # 首次测试
+    if test_warp_connectivity; then
+        echo -e "${Info} ${Green}WARP 连通正常!${Reset}"
+        return 0
+    fi
+    
+    echo -e "${Warning} 当前 Endpoint 无法连通 Google"
+    
+    # 检查优选结果文件
+    if [ ! -f "$WARP_SPEEDTEST_RESULT" ]; then
+        echo -e "${Info} 运行 Endpoint 优选..."
+        run_warp_speedtest || {
+            echo -e "${Warning} 优选失败，保持当前配置"
+            return 1
+        }
+    fi
+    
+    # 循环尝试前 5 个 Endpoint
+    while [ $attempt -lt $max_attempts ]; do
+        ((attempt++))
+        local ep=$(get_nth_endpoint $attempt)
+        
+        if [ -z "$ep" ]; then
+            echo -e "${Warning} 已尝试所有可用 Endpoint"
+            break
+        fi
+        
+        local delay=$(tail -n +2 "$WARP_SPEEDTEST_RESULT" | sed -n "${attempt}p" | cut -d',' -f2)
+        echo -e "${Info} 尝试 Endpoint #$attempt: ${Cyan}$ep${Reset} (延迟: ${delay}ms)"
+        
+        # 更新配置并重启
+        update_singbox_warp_endpoint "$ep"
+        restart_singbox_quiet
+        sleep 2
+        
+        # 测试
+        if test_warp_connectivity; then
+            echo -e "${Info} ${Green}连通成功!${Reset}"
+            echo -e "${Info} 已保存最佳 Endpoint: ${Cyan}$ep${Reset}"
+            return 0
+        fi
+        
+        echo -e "${Warning} 尝试 #$attempt 失败"
+    done
+    
+    # 全部失败，回退直连
+    echo -e "${Error} 所有 Endpoint 均无法连通"
+    disable_warp_outbound
+    restart_singbox_quiet
+    echo -e "${Info} 已回退到直连模式"
+    return 1
+}
+
+# 静默重启 sing-box
+restart_singbox_quiet() {
+    if command -v systemctl &>/dev/null; then
+        systemctl restart sing-box 2>/dev/null
+    else
+        pkill -f "sing-box" 2>/dev/null
+        sleep 1
+        nohup "$SINGBOX_BIN" run -c "$SINGBOX_CONF" >/dev/null 2>&1 &
+    fi
+}
+
 
 # 获取 WARP Endpoint 配置 (优先使用 WARP 模块的优选结果)
 # 获取 WARP Endpoint 配置 (优先使用 WARP 模块的优选结果)
@@ -2671,7 +2954,11 @@ EOF
     
     # 启动服务
     read -p "是否立即启动? [Y/n]: " start_now
-    [[ ! $start_now =~ ^[Nn]$ ]] && start_singbox
+    if [[ ! $start_now =~ ^[Nn]$ ]]; then
+        start_singbox
+        # 验证 WARP 连通性
+        verify_warp_after_start
+    fi
 }
 
 # 预设组合
