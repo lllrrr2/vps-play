@@ -259,11 +259,11 @@ get_warp_endpoint() {
     fi
 }
 
-# 生成 outbounds 和 endpoints 配置
+# 生成 outbounds 和 route 配置
 # 参数: $1 = 是否启用 WARP (true/false)
 # 参照 argosbx 的实现：
-# - endpoints 中的 wireguard tag 为 warp-out
-# - route.final 直接指向 warp-out (endpoint)
+# - 不启用 WARP: 只有 direct outbound，无 route 配置
+# - 启用 WARP: outbounds (direct) + endpoints (warp-out) + route (final指向warp-out)
 get_outbounds_config() {
     local enable_warp=${1:-false}
     
@@ -333,22 +333,14 @@ get_outbounds_config() {
   }
 WARP_EOF
     else
-        # 默认直连出站 (也需要 route 配置)
+        # 默认直连出站 (参照 argosbx: 不启用 WARP 时无 route 配置)
         cat << DIRECT_EOF
   "outbounds": [
     {
       "type": "direct",
       "tag": "direct"
     }
-  ],
-  "route": {
-    "rules": [
-      {
-        "action": "sniff"
-      }
-    ],
-    "final": "direct"
-  }
+  ]
 DIRECT_EOF
     fi
 }
@@ -389,35 +381,39 @@ generate_self_signed_cert() {
     
     echo -e "${Info} 生成自签名证书 (域名: $domain)..."
     
-    # 检查 openssl
-    if ! command -v openssl >/dev/null 2>&1; then
-        echo -e "${Info} 正在安装 openssl..."
-        if command -v apt-get >/dev/null 2>&1; then
-            apt-get update -qq && apt-get install -y -qq openssl
-        elif command -v yum >/dev/null 2>&1; then
-            yum install -y -q openssl
-        elif command -v apk >/dev/null 2>&1; then
-            apk add --quiet openssl
-        fi
-    fi
-    
     if [ ! -d "$CERT_DIR" ]; then
         mkdir -p "$CERT_DIR"
     fi
     
-    openssl ecparam -genkey -name prime256v1 -out "$CERT_DIR/private.key"
-    openssl req -new -x509 -days 36500 -key "$CERT_DIR/private.key" -out "$CERT_DIR/cert.crt" -subj "/CN=$domain"
-    
-    if [ -f "$CERT_DIR/cert.crt" ] && [ -f "$CERT_DIR/private.key" ]; then
-        chmod 644 "$CERT_DIR/cert.crt" "$CERT_DIR/private.key"
-    else
-        echo -e "${Error} 证书生成失败"
-        return 1
+    # 参照 argosbx: 使用 openssl 生成 EC 证书
+    if command -v openssl >/dev/null 2>&1; then
+        openssl ecparam -genkey -name prime256v1 -out "$CERT_DIR/private.key" >/dev/null 2>&1
+        openssl req -new -x509 -days 36500 -key "$CERT_DIR/private.key" -out "$CERT_DIR/cert.pem" -subj "/CN=$domain" >/dev/null 2>&1
     fi
     
-    echo -e "${Info} 证书生成完成"
-    echo -e " 证书路径: ${Cyan}$CERT_DIR/cert.crt${Reset}"
-    echo -e " 私钥路径: ${Cyan}$CERT_DIR/private.key${Reset}"
+    # 如果生成失败，从 GitHub 下载备份证书 (参照 argosbx)
+    if [ ! -f "$CERT_DIR/private.key" ] || [ ! -f "$CERT_DIR/cert.pem" ]; then
+        echo -e "${Warning} 本地证书生成失败，正在下载备用证书..."
+        
+        if command -v curl >/dev/null 2>&1; then
+            curl -Ls -o "$CERT_DIR/private.key" "https://github.com/yonggekkk/argosbx/releases/download/argosbx/private.key" 2>/dev/null
+            curl -Ls -o "$CERT_DIR/cert.pem" "https://github.com/yonggekkk/argosbx/releases/download/argosbx/cert.pem" 2>/dev/null
+        elif command -v wget >/dev/null 2>&1; then
+            timeout 3 wget -q -O "$CERT_DIR/private.key" "https://github.com/yonggekkk/argosbx/releases/download/argosbx/private.key" --tries=2 2>/dev/null
+            timeout 3 wget -q -O "$CERT_DIR/cert.pem" "https://github.com/yonggekkk/argosbx/releases/download/argosbx/cert.pem" --tries=2 2>/dev/null
+        fi
+    fi
+    
+    if [ -f "$CERT_DIR/cert.pem" ] && [ -f "$CERT_DIR/private.key" ]; then
+        chmod 644 "$CERT_DIR/cert.pem" "$CERT_DIR/private.key"
+        echo -e "${Info} 证书准备完成"
+        echo -e " 证书路径: ${Cyan}$CERT_DIR/cert.pem${Reset}"
+        echo -e " 私钥路径: ${Cyan}$CERT_DIR/private.key${Reset}"
+        return 0
+    else
+        echo -e "${Error} 证书生成/下载失败"
+        return 1
+    fi
 }
 
 apply_acme_cert() {
@@ -447,10 +443,10 @@ apply_acme_cert() {
     ~/.acme.sh/acme.sh --issue -d "$domain" --standalone -k ec-256 --insecure
     ~/.acme.sh/acme.sh --install-cert -d "$domain" \
         --key-file "$CERT_DIR/private.key" \
-        --fullchain-file "$CERT_DIR/cert.crt" \
+        --fullchain-file "$CERT_DIR/cert.pem" \
         --ecc
     
-    if [ -f "$CERT_DIR/cert.crt" ] && [ -s "$CERT_DIR/cert.crt" ]; then
+    if [ -f "$CERT_DIR/cert.pem" ] && [ -s "$CERT_DIR/cert.pem" ]; then
         echo "$domain" > "$CERT_DIR/domain.txt"
         echo -e "${Info} 证书申请成功"
         return 0
@@ -489,7 +485,7 @@ cert_menu() {
             read -p "证书路径: " custom_cert
             read -p "私钥路径: " custom_key
             if [ -f "$custom_cert" ] && [ -f "$custom_key" ]; then
-                cp "$custom_cert" "$CERT_DIR/cert.crt"
+                cp "$custom_cert" "$CERT_DIR/cert.pem"
                 cp "$custom_key" "$CERT_DIR/private.key"
                 read -p "证书域名: " CERT_DOMAIN
             else
@@ -741,19 +737,19 @@ install_hysteria2() {
 ${exp_config}  "inbounds": [
     {
       "type": "hysteria2",
-      "tag": "hy2-in",
+      "tag": "hy2-sb",
       "listen": "::",
       "listen_port": $port,
       "users": [
         {
-          "name": "user",
           "password": "$password"
         }
       ],
+      "ignore_client_bandwidth": false,
       "tls": {
         "enabled": true,
         "alpn": ["h3"],
-        "certificate_path": "$CERT_DIR/cert.crt",
+        "certificate_path": "$CERT_DIR/cert.pem",
         "key_path": "$CERT_DIR/private.key"
       }
     }
@@ -819,43 +815,12 @@ install_anytls() {
     save_port "anytls" "$port"
     echo -e "${Info} AnyTLS 端口: ${Cyan}$port${Reset}"
     
-    # 4. 生成自签证书（AnyTLS 需要 TLS）
+    # 4. 生成自签证书（参照 argosbx 统一证书管理）
     echo -e "${Info} 生成自签证书..."
-    local cert_domain="bing.com"
-    mkdir -p "$CERT_DIR"
-    
-    # 方法1: EC prime256v1
-    if command -v openssl >/dev/null 2>&1; then
-        openssl ecparam -genkey -name prime256v1 -out "$CERT_DIR/anytls.key" >/dev/null 2>&1
-        openssl req -new -x509 -days 36500 -key "$CERT_DIR/anytls.key" \
-            -out "$CERT_DIR/anytls.crt" -subj "/CN=$cert_domain" >/dev/null 2>&1
-    fi
-    
-    # 方法2: RSA 2048 (备用)
-    if [ ! -f "$CERT_DIR/anytls.key" ]; then
-        echo -e "${Warning} EC证书生成失败，尝试RSA备用方法..."
-        openssl req -x509 -newkey rsa:2048 \
-            -keyout "$CERT_DIR/anytls.key" \
-            -out "$CERT_DIR/anytls.crt" \
-            -days 36500 -nodes \
-            -subj "/CN=$cert_domain" >/dev/null 2>&1
-    fi
-    
-    # 方法3: 从 GitHub 下载备用证书
-    if [ ! -f "$CERT_DIR/anytls.key" ]; then
-        echo -e "${Warning} 本地证书生成失败，正在下载备用证书..."
-        curl -sL -o "$CERT_DIR/anytls.key" \
-            "https://github.com/yonggekkk/argosbx/releases/download/argosbx/private.key" 2>/dev/null
-        curl -sL -o "$CERT_DIR/anytls.crt" \
-            "https://github.com/yonggekkk/argosbx/releases/download/argosbx/cert.pem" 2>/dev/null
-    fi
-    
-    if [ ! -f "$CERT_DIR/anytls.key" ] || [ ! -f "$CERT_DIR/anytls.crt" ]; then
-        echo -e "${Error} 证书生成/下载失败"
+    if ! generate_self_signed_cert "bing.com"; then
+        echo -e "${Error} 证书准备失败"
         return 1
     fi
-    
-    echo -e "${Info} 证书准备完成"
     
     # 5. 询问是否启用 WARP 出站
     ask_warp_outbound
@@ -872,19 +837,19 @@ install_anytls() {
   "inbounds": [
     {
       "type": "anytls",
-      "tag": "anytls-in",
+      "tag": "anytls-sb",
       "listen": "::",
       "listen_port": $port,
       "users": [
         {
-           "password": "$password"
+          "password": "$password"
         }
       ],
       "padding_scheme": [],
       "tls": {
         "enabled": true,
-        "certificate_path": "$CERT_DIR/anytls.crt",
-        "key_path": "$CERT_DIR/anytls.key"
+        "certificate_path": "$CERT_DIR/cert.pem",
+        "key_path": "$CERT_DIR/private.key"
       }
     }
   ],
@@ -997,12 +962,12 @@ install_any_reality() {
   "inbounds": [
     {
       "type": "anytls",
-      "tag": "anyreality-in",
+      "tag": "anyreality-sb",
       "listen": "::",
       "listen_port": $port,
       "users": [
         {
-           "password": "$password"
+          "password": "$password"
         }
       ],
       "padding_scheme": [],
@@ -1100,7 +1065,7 @@ install_tuic() {
 ${exp_config}  "inbounds": [
     {
       "type": "tuic",
-      "tag": "tuic-in",
+      "tag": "tuic5-sb",
       "listen": "::",
       "listen_port": $port,
       "users": [
@@ -1113,7 +1078,7 @@ ${exp_config}  "inbounds": [
       "tls": {
         "enabled": true,
         "alpn": ["h3"],
-        "certificate_path": "$CERT_DIR/cert.crt",
+        "certificate_path": "$CERT_DIR/cert.pem",
         "key_path": "$CERT_DIR/private.key"
       }
     }

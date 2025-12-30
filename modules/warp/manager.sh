@@ -223,89 +223,165 @@ resume_warp_after_optimize() {
 }
 
 # 运行 Endpoint 优选
+# 运行 Endpoint 优选 (Shell版，兼容 FreeBSD)
 run_endpoint_optimize() {
     local ipv6_mode=${1:-false}
     
     echo -e ""
-    echo -e "${Cyan}========== WARP Endpoint IP 优选 ==========${Reset}"
+    echo -e "${Cyan}========== WARP Endpoint IP 优选 (Shell版) ==========${Reset}"
     echo -e ""
     
-    local arch=$(get_cpu_arch)
-    if [ $? -ne 0 ]; then
+    # 检查依赖
+    if ! command -v nc >/dev/null 2>&1; then
+        echo -e "${Error} 需要 nc (netcat) 命令"
         return 1
     fi
     
-    local warp_tool="$WARP_DIR/warp-optimizer"
     local result_file="$WARP_RESULT_FILE"
     
     # 清理之前的结果
     rm -f "$result_file"
     
-    # 停止 WARP 进行优选
+    # 停止 WARP 进行优选 (避免端口冲突或影响测速)
     stop_warp_for_optimize
     
-    # 下载 WARP 优选工具 (Linux 版本)
-    echo -e "${Info} 下载 Endpoint 优选工具 ($arch)..."
+    # WARP 端口列表 (官方端口)
+    local ports=(500 1701 2408 4500)
     
-    # 根据系统选择正确的版本
-    local os_type="linux"
-    case "$(uname -s | tr '[:upper:]' '[:lower:]')" in
-        darwin) os_type="darwin" ;;
-        freebsd) os_type="freebsd" ;;
-        *) os_type="linux" ;;
-    esac
+    # 生成测试IP列表
+    echo -e "${Info} 正在生成测试IP列表..."
     
-    local download_url="https://gitlab.com/Misaka-blog/warp-script/-/raw/main/files/warp-yxip/warp-${os_type}-${arch}"
+    local test_ips=()
     
-    # 尝试多个下载源
-    local download_success=false
-    
-    if curl -sL "$download_url" -o "$warp_tool" 2>/dev/null && [ -s "$warp_tool" ]; then
-        download_success=true
+    if [ "$ipv6_mode" = true ]; then
+        echo -e "${Info} 模式: IPv6 优选"
+        test_ips=(
+            "2606:4700:d0::a29f:c001"
+            "2606:4700:d0::a29f:c002"
+            "2606:4700:d0::a29f:c003"
+            "2606:4700:d1::a29f:c001"
+            "2606:4700:d1::a29f:c002"
+            "2606:4700:d1::a29f:c003"
+            "2606:4700:d1::a29f:c004"
+            "2606:4700:d1::a29f:c005"
+        )
     else
-        # 备用源1: ghproxy
-        echo -e "${Warning} 主线下载失败，尝试备用源..."
-        download_url="https://mirror.ghproxy.com/$download_url"
-        if curl -sL "$download_url" -o "$warp_tool" 2>/dev/null && [ -s "$warp_tool" ]; then
-            download_success=true
-        fi
+        echo -e "${Info} 模式: IPv4 优选"
+        # 常见 WARP IP 段
+        local cidrs=("162.159.192" "162.159.193" "162.159.195" "188.114.96" "188.114.97" "188.114.98" "188.114.99")
+        
+        # 每个段随机生成一些 IP
+        for cidr in "${cidrs[@]}"; do
+            for i in $(seq 1 5); do
+                local last_octet=$((RANDOM % 254 + 1))
+                test_ips+=("${cidr}.${last_octet}")
+            done
+        done
+        
+        # 添加一些已知的优选 IP
+        test_ips+=("162.159.192.1" "162.159.193.1" "162.159.195.1" "188.114.96.1" "188.114.97.1")
     fi
     
-    if [ "$download_success" = false ]; then
-        echo -e "${Error} 下载优选工具失败"
-        echo -e "${Tip} 您可以手动下载工具到 $warp_tool"
-        resume_warp_after_optimize
-        return 1
-    fi
+    local total_ips=${#test_ips[@]}
+    echo -e "${Info} 共生成 $total_ips 个测试IP"
+    echo -e ""
     
-    chmod +x "$warp_tool"
-    
-    # 取消线程限制
+    # 取消线程限制 (如果是 root)
     ulimit -n 102400 2>/dev/null
     
     echo -e "${Info} 开始 Endpoint IP 优选..."
-    echo -e "${Tip} 这可能需要几分钟，请耐心等待..."
+    echo -e "${Tip} 原理: 使用 UDP 探测连通性和丢包率 (类似 ping)"
+    echo -e "${Tip} 这可能需要1-2分钟，请耐心等待..."
     echo -e ""
     
-    # 进入工作目录运行优选
-    cd "$WARP_DIR"
+    # 进度显示
+    local tested=0
+    local success=0
     
-    if [ "$ipv6_mode" = true ]; then
-        "$warp_tool" -ipv6
-    else
-        "$warp_tool"
-    fi
+    # 创建结果文件头
+    echo "endpoint,loss,delay" > "$result_file"
     
-    # 检查结果文件
-    if [ ! -f "result.csv" ]; then
-        echo -e "${Error} 优选结果文件未生成"
-        rm -f "$warp_tool"
+    for ip in "${test_ips[@]}"; do
+        # 随机选择端口
+        local port=${ports[$((RANDOM % ${#ports[@]}))]}
+        
+        local total_time=0
+        local recv_count=0
+        local send_count=3
+        
+        for i in $(seq 1 $send_count); do
+            local start_time=$(date +%s)
+            
+            # 使用 nc 测试连接
+            # timeout 命令在某些极简系统可能不存在，适配一下
+            if command -v timeout >/dev/null 2>&1; then
+                if echo "" | timeout 1 nc -u -w 1 "$ip" "$port" >/dev/null 2>&1; then
+                    recv_count=$((recv_count + 1))
+                fi
+            else
+                # 没有 timeout 命令，依赖 nc 的 -w 参数
+                if echo "" | nc -u -w 1 "$ip" "$port" >/dev/null 2>&1; then
+                    recv_count=$((recv_count + 1))
+                fi
+            fi
+            
+            local end_time=$(date +%s)
+            # Shell 的 date 精度通常只有秒，但也足够排除完全不通的节点
+            # 如果支持 %N (纳秒)，可以更精确，但 FreeBSD 不支持 %N
+            local elapsed=$((end_time - start_time))
+            
+            # 简单修正：如果连通且时间为0 (小于1秒)，给个默认小值以便排序
+            if [ $elapsed -eq 0 ]; then elapsed=1; fi
+            
+            total_time=$((total_time + elapsed * 1000)) # 转毫秒
+        done
+        
+        # 计算丢包率和平均延迟
+        local loss=100
+        local delay=9999
+        
+        if [ $recv_count -gt 0 ]; then
+            loss=$(( (send_count - recv_count) * 100 / send_count ))
+            delay=$((total_time / recv_count))
+            success=$((success + 1))
+            
+            # 保存结果 IPv6 需要加 []
+            if [[ "$ip" == *":"* ]]; then
+                 echo "[${ip}]:${port},${loss},${delay}" >> "$result_file"
+            else
+                 echo "${ip}:${port},${loss},${delay}" >> "$result_file"
+            fi
+        fi
+        
+        tested=$((tested + 1))
+        # 进度条
+        if [ $((tested % 5)) -eq 0 ]; then
+             echo -ne "\r${Info} 进度: $tested / $total_ips (成功: $success)"
+        fi
+    done
+    
+    echo -e "\r${Info} 进度: $tested / $total_ips (成功: $success)      "
+    echo -e ""
+    
+    # 检查是否有结果
+    if [ ! -s "$result_file" ] || [ $(cat "$result_file" | wc -l) -le 1 ]; then
+        echo -e "${Error} 优选失败，无可用 Endpoint"
+        echo -e "${Tip} 可能原因: "
+        echo -e "  1. 您的网络环境封锁了 WARP 协议"
+        echo -e "  2. 防火墙阻止了 UDP 通信"
+        echo -e "  3. IPv6 互联问题 (如果选了 IPv6)"
+        
         resume_warp_after_optimize
         return 1
     fi
     
-    # 复制结果
-    mv "result.csv" "$result_file"
+    # 排序结果 (丢包率优先，然后是延迟)
+    # 排序逻辑: sort -t, -k2,2n (按丢包率升序) -k3,3n (按延迟升序)
+    # 注意跳过第一行(header)
+    local sorted_file="${result_file}.sorted"
+    head -n 1 "$result_file" > "$sorted_file"
+    tail -n +2 "$result_file" | sort -t, -k2,2n -k3,3n >> "$sorted_file"
+    mv "$sorted_file" "$result_file"
     
     echo -e ""
     echo -e "${Green}========== 优选结果 ==========${Reset}"
@@ -314,50 +390,39 @@ run_endpoint_optimize() {
     # 显示前 10 个最优结果
     echo -e "${Info} 最优 Endpoint IP 列表:"
     echo -e ""
-    awk -F, 'NR==1 || ($3!="timeout ms" && $3!="") {print}' "$result_file" | sort -t, -nk2 -nk3 | uniq | head -11 | while read line; do
-        if [ -n "$line" ]; then
-            local ep=$(echo "$line" | cut -d, -f1)
-            local loss=$(echo "$line" | cut -d, -f2)
-            local delay=$(echo "$line" | cut -d, -f3)
-            
-            if [ "$ep" = "IP" ] || [ "$ep" = "IP:PORT" ]; then
-                printf " %-25s %-12s %s\n" "Endpoint" "丢包率" "延迟"
-                echo " ----------------------------------------"
-            else
-                printf " %-25s %-12s %s\n" "$ep" "$loss" "$delay"
-            fi
-        fi
+    printf " %-4s %-25s %-8s %-8s\n" "序号" "Endpoint" "丢包%" "延迟(约)"
+    echo " ---------------------------------------------------"
+    
+    local idx=1
+    tail -n +2 "$result_file" | head -10 | while IFS=, read -r ep loss delay; do
+        printf " [%-2d] %-25s %-8s %-8s\n" "$idx" "$ep" "$loss" "${delay}ms"
+        idx=$((idx + 1))
     done
     
+    echo " ---------------------------------------------------"
     echo -e ""
     
     # 获取最优 IP
-    local best_endpoint=$(awk -F, 'NR==2{print $1}' "$result_file")
+    local best_endpoint=$(tail -n +2 "$result_file" | head -1 | cut -d, -f1)
     
     if [ -z "$best_endpoint" ]; then
         echo -e "${Error} 未能获取最优 Endpoint"
-        rm -f "$warp_tool"
         resume_warp_after_optimize
         return 1
     fi
     
-    echo -e "${Info} 最优 Endpoint: ${Cyan}$best_endpoint${Reset}"
+    echo -e "${Info} 自动推荐: ${Cyan}$best_endpoint${Reset}"
     echo -e ""
     
-    # 确保 endpoint 包含端口
-    if ! echo "$best_endpoint" | grep -q ":"; then
-        best_endpoint="${best_endpoint}:2408"
-    fi
-    
-    # 询问是否使用最优 IP
-    echo -e "${Tip} 是否使用此 Endpoint?"
-    echo -e " ${Green}1.${Reset} 是，使用最优 Endpoint (推荐)"
-    echo -e " ${Green}2.${Reset} 手动选择其他 Endpoint"
-    echo -e " ${Green}3.${Reset} 输入自定义 Endpoint"
-    echo -e " ${Green}0.${Reset} 取消，保持当前设置"
+    # 询问是否使用
+    echo -e "${Tip} 选项:"
+    echo -e " ${Green}1.${Reset} 使用自动推荐 (默认)"
+    echo -e " ${Green}2.${Reset} 重新进行优选"
+    echo -e " ${Green}3.${Reset} 手动选择列表中的其他 IP"
+    echo -e " ${Green}0.${Reset} 取消，保持原有设置"
     echo -e ""
     
-    read -p "请选择 [0-3, 默认1]: " ep_choice
+    read -p "请选择 [0-3]: " ep_choice
     ep_choice=${ep_choice:-1}
     
     local selected_endpoint="$best_endpoint"
@@ -367,51 +432,38 @@ run_endpoint_optimize() {
             # 使用最优
             ;;
         2)
-            # 手动选择
-            echo -e ""
-            echo -e "${Info} 请输入序号选择 Endpoint (2-10):"
-            read -p "序号: " row_num
-            if [[ "$row_num" =~ ^[0-9]+$ ]] && [ "$row_num" -ge 2 ] && [ "$row_num" -le 11 ]; then
-                selected_endpoint=$(awk -F, "NR==$row_num{print \$1}" "$result_file")
-                if [ -n "$selected_endpoint" ]; then
-                    if ! echo "$selected_endpoint" | grep -q ":"; then
-                        selected_endpoint="${selected_endpoint}:2408"
-                    fi
-                else
-                    echo -e "${Warning} 无效序号，使用最优 Endpoint"
-                    selected_endpoint="$best_endpoint"
-                fi
-            else
-                echo -e "${Warning} 无效输入，使用最优 Endpoint"
-            fi
+            # 重新优选
+            run_endpoint_optimize "$ipv6_mode"
+            return $?
             ;;
         3)
-            # 自定义输入
-            echo -e ""
-            read -p "输入 Endpoint (IP:端口): " custom_ep
-            if [ -n "$custom_ep" ]; then
-                selected_endpoint="$custom_ep"
+            # 手动选择
+            read -p "请输入序号 [1-10]: " user_idx
+             if [[ "$user_idx" =~ ^[0-9]+$ ]] && [ "$user_idx" -ge 1 ] && [ "$user_idx" -le 10 ]; then
+                local user_ep=$(tail -n +2 "$result_file" | sed -n "${user_idx}p" | cut -d, -f1)
+                if [ -n "$user_ep" ]; then
+                    selected_endpoint="$user_ep"
+                    echo -e "${Info} 您选择了: ${Cyan}$selected_endpoint${Reset}"
+                else
+                    echo -e "${Warning} 无效序号，使用推荐 IP"
+                fi
             else
-                echo -e "${Warning} 输入为空，使用最优 Endpoint"
+                echo -e "${Warning} 无效输入，使用推荐 IP"
             fi
             ;;
         0)
             echo -e "${Info} 已取消"
-            rm -f "$warp_tool"
             resume_warp_after_optimize
             return 0
             ;;
         *)
-            # 默认使用最优
+            echo -e "${Warning} 无效选择，默认使用推荐 IP"
             ;;
     esac
     
     # 保存选择的 Endpoint
     echo "$selected_endpoint" > "$WARP_ENDPOINT_FILE"
     echo -e "${Info} 已保存 Endpoint: ${Cyan}$selected_endpoint${Reset}"
-    
-    # 清理优选工具
-    rm -f "$warp_tool"
     
     # 更新配置文件中的 Endpoint
     update_singbox_endpoint "$selected_endpoint"
@@ -561,36 +613,46 @@ view_optimize_result() {
     echo -e "${Green}========== 上次优选结果 ==========${Reset}"
     echo -e ""
     
-    awk -F, 'NR==1 || ($3!="timeout ms" && $3!="") {print}' "$WARP_RESULT_FILE" | sort -t, -nk2 -nk3 | uniq | head -11 | while read line; do
-        if [ -n "$line" ]; then
-            local ep=$(echo "$line" | cut -d, -f1)
-            local loss=$(echo "$line" | cut -d, -f2)
-            local delay=$(echo "$line" | cut -d, -f3)
-            
-            if [ "$ep" = "IP" ] || [ "$ep" = "IP:PORT" ]; then
-                printf " %-25s %-12s %s\n" "Endpoint" "丢包率" "延迟"
-                echo " ----------------------------------------"
-            else
-                printf " %-25s %-12s %s\n" "$ep" "$loss" "$delay"
-            fi
-        fi
+    # 显示结果列表
+    printf " %-4s %-25s %-8s %-8s\n" "序号" "Endpoint" "丢包%" "延迟(约)"
+    echo " ---------------------------------------------------"
+    
+    local idx=1
+    tail -n +2 "$WARP_RESULT_FILE" | head -10 | while IFS=, read -r ep loss delay; do
+        printf " [%-2d] %-25s %-8s %-8s\n" "$idx" "$ep" "$loss" "${delay}ms"
+        idx=$((idx + 1))
     done
     
+    echo " ---------------------------------------------------"
     echo -e ""
     
     # 询问是否使用结果中的某个 Endpoint
     echo -e "${Tip} 是否从结果中选择一个 Endpoint?"
-    read -p "输入序号 (2-10) 或回车跳过: " row_num
+    read -p "输入序号 (1-10) 或回车跳过: " row_num
     
-    if [[ "$row_num" =~ ^[0-9]+$ ]] && [ "$row_num" -ge 2 ] && [ "$row_num" -le 11 ]; then
-        local selected_endpoint=$(awk -F, "NR==$row_num{print \$1}" "$WARP_RESULT_FILE")
+    if [[ "$row_num" =~ ^[0-9]+$ ]] && [ "$row_num" -ge 1 ] && [ "$row_num" -le 10 ]; then
+        # 注意: 用户输入 1 对应文件第 2 行 (header 是第 1 行)
+        local line_num=$((row_num + 1))
+        local selected_endpoint=$(sed -n "${line_num}p" "$WARP_RESULT_FILE" | cut -d, -f1)
+        
         if [ -n "$selected_endpoint" ]; then
+            # 保存前确保包含端口
             if ! echo "$selected_endpoint" | grep -q ":"; then
                 selected_endpoint="${selected_endpoint}:2408"
             fi
+            
             echo "$selected_endpoint" > "$WARP_ENDPOINT_FILE"
             echo -e "${Info} 已保存 Endpoint: ${Cyan}$selected_endpoint${Reset}"
+            
             update_singbox_endpoint "$selected_endpoint"
+            
+            # 询问是否重启服务
+            read -p "是否重启 WARP 服务使配置生效? [Y/n]: " restart_now
+            if [[ ! $restart_now =~ ^[Nn]$ ]]; then
+                restart_warp_singbox
+            fi
+        else
+             echo -e "${Warning} 无效序号"
         fi
     fi
 }
