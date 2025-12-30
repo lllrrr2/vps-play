@@ -1,6 +1,6 @@
 #!/bin/bash
 # sing-box 模块 - VPS-play
-# 多协议代理节点管理
+# 多协议代理节点管�?
 #
 # Copyright (C) 2025 VPS-play Contributors
 #
@@ -55,12 +55,12 @@ SINGBOX_REPO="https://github.com/SagerNet/sing-box"
 
 mkdir -p "$SINGBOX_DIR" "$CERT_DIR" "$CONFIG_DIR"
 
-# ==================== 参数持久化存储 (参照argosbx) ====================
+# ==================== 参数持久化存�?(参照argosbx) ====================
 DATA_DIR="$SINGBOX_DIR/data"
 LINKS_FILE="$SINGBOX_DIR/links.txt"
 mkdir -p "$DATA_DIR"
 
-# 初始化/获取 UUID (参照argosbx的insuuid函数, 修复FreeBSD兼容性)
+# 初始�?获取 UUID (参照argosbx的insuuid函数, 修复FreeBSD兼容�?
 init_uuid() {
     # 首先尝试从文件读取（如果文件存在且非空）
     if [ -s "$DATA_DIR/uuid" ]; then
@@ -77,16 +77,16 @@ init_uuid() {
         [ -z "$uuid" ] && uuid=$(cat /proc/sys/kernel/random/uuid 2>/dev/null)
         # 方法3: uuidgen
         [ -z "$uuid" ] && uuid=$(uuidgen 2>/dev/null)
-        # 方法4: 手动生成 (FreeBSD兼容，使用 LC_ALL=C 避免 Illegal byte sequence)
+        # 方法4: 手动生成 (FreeBSD兼容，使�?LC_ALL=C 避免 Illegal byte sequence)
         if [ -z "$uuid" ]; then
             uuid=$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom 2>/dev/null | head -c 8)-$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom 2>/dev/null | head -c 4)-$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom 2>/dev/null | head -c 4)-$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom 2>/dev/null | head -c 4)-$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom 2>/dev/null | head -c 12)
         fi
-        # 方法5: 使用 od 作为最后备用 (FreeBSD)
+        # 方法5: 使用 od 作为最后备�?(FreeBSD)
         if [ -z "$uuid" ] || [ ${#uuid} -lt 32 ]; then
             uuid=$(od -An -tx1 -N 16 /dev/urandom 2>/dev/null | tr -d ' \n' | sed 's/\(.\{8\}\)\(.\{4\}\)\(.\{4\}\)\(.\{4\}\)\(.\{12\}\)/\1-\2-\3-\4-\5/')
         fi
         
-        # 保存到文件
+        # 保存到文�?
         if [ -n "$uuid" ]; then
             if [ ! -d "$DATA_DIR" ]; then
                 mkdir -p "$DATA_DIR"
@@ -95,16 +95,16 @@ init_uuid() {
         fi
     fi
     
-    # 最终验证
+    # 最终验�?
     if [ -z "$uuid" ]; then
         echo -e "${Error} UUID 生成失败"
         return 1
     fi
     
-    echo -e "${Info} UUID/密码：${Cyan}$uuid${Reset}"
+    echo -e "${Info} UUID/密码�?{Cyan}$uuid${Reset}"
 }
 
-# 保存端口到文件
+# 保存端口到文�?
 save_port() {
     local proto=$1
     local port=$2
@@ -133,10 +133,10 @@ get_server_ip() {
     echo "$server_ip"
 }
 
-# 生成 experimental 配置块 (可选，目前不使用)
-# 流量统计已改为读取 VPS 系统网络接口流量
+# 生成 experimental 配置�?(可选，目前不使�?
+# 流量统计已改为读�?VPS 系统网络接口流量
 get_experimental_config() {
-    # 返回空，不添加 experimental 配置
+    # 返回空，不添�?experimental 配置
     echo ""
 }
 
@@ -144,32 +144,32 @@ get_experimental_config() {
 WARP_DATA_DIR="$SINGBOX_DIR/warp"
 mkdir -p "$WARP_DATA_DIR"
 
-# 全局变量，标记是否启用 WARP 出站
+# 全局变量，标记是否启�?WARP 出站
 WARP_ENABLED=false
 
-# 初始化/获取 WARP 配置 (直接采用 argosbx 的方案)
+# 初始�?获取 WARP 配置 (直接采用 argosbx 的方�?
 init_warp_config() {
     echo -e "${Info} 获取 WARP 配置..."
     
-    # 尝试从勇哥的 API 获取预注册配置
+    # 尝试从勇哥的 API 获取预注册配�?
     local warpurl=""
     warpurl=$(curl -sm5 -k https://ygkkk-warp.renky.eu.org 2>/dev/null) || \
     warpurl=$(wget -qO- --timeout=5 https://ygkkk-warp.renky.eu.org 2>/dev/null)
     
     if echo "$warpurl" | grep -q ygkkk; then
-        WARP_PRIVATE_KEY=$(echo "$warpurl" | awk -F'：' '/Private_key/{print $2}' | xargs)
-        WARP_IPV6=$(echo "$warpurl" | awk -F'：' '/IPV6/{print $2}' | xargs)
-        WARP_RESERVED=$(echo "$warpurl" | awk -F'：' '/reserved/{print $2}' | xargs)
+        WARP_PRIVATE_KEY=$(echo "$warpurl" | awk -F'�? '/Private_key/{print $2}' | xargs)
+        WARP_IPV6=$(echo "$warpurl" | awk -F'�? '/IPV6/{print $2}' | xargs)
+        WARP_RESERVED=$(echo "$warpurl" | awk -F'�? '/reserved/{print $2}' | xargs)
         echo -e "${Info} WARP 配置获取成功 (远程)"
     else
-        # 备用硬编码配置 (和 argosbx 一样)
+        # 备用硬编码配�?(�?argosbx 一�?
         WARP_IPV6='2606:4700:110:8d8d:1845:c39f:2dd5:a03a'
         WARP_PRIVATE_KEY='52cuYFgCJXp0LAq7+nWJIbCXXgU9eGggOc+Hlfz5u6A='
         WARP_RESERVED='[215, 69, 233]'
         echo -e "${Info} WARP 配置获取成功 (备用)"
     fi
     
-    # 保存配置供后续使用 (确保目录存在)
+    # 保存配置供后续使�?(确保目录存在)
     mkdir -p "$WARP_DATA_DIR"
     echo "$WARP_PRIVATE_KEY" > "$WARP_DATA_DIR/private_key"
     echo "$WARP_RESERVED" > "$WARP_DATA_DIR/reserved"
@@ -183,36 +183,36 @@ ask_warp_outbound() {
     echo -e ""
     echo -e "${Cyan}是否启用 WARP 出站代理?${Reset}"
     echo -e "${Tip} 启用后，节点流量将通过 Cloudflare WARP 出站"
-    echo -e "${Tip} 可用于解锁流媒体、隐藏真实 IP 等"
+    echo -e "${Tip} 可用于解锁流媒体、隐藏真�?IP �?
     echo -e ""
     read -p "启用 WARP 出站? [y/N]: " enable_warp
     
     if [[ "$enable_warp" =~ ^[Yy]$ ]]; then
         if init_warp_config; then
             WARP_ENABLED=true
-            echo -e "${Info} WARP 出站已启用"
+            echo -e "${Info} WARP 出站已启�?
             
-            # 检查是否已有优选 Endpoint
+            # 检查是否已有优�?Endpoint
             local warp_endpoint_file="$HOME/.vps-play/warp/data/endpoint"
             if [ ! -f "$warp_endpoint_file" ]; then
                 echo -e ""
-                echo -e "${Tip} 检测到尚未进行 Endpoint 优选"
+                echo -e "${Tip} 检测到尚未进行 Endpoint 优�?
                 echo -e "${Tip} 优选可以找到最佳的 WARP 连接点，提升速度"
-                read -p "是否进行 Endpoint IP 优选? [y/N]: " do_optimize
+                read -p "是否进行 Endpoint IP 优�? [y/N]: " do_optimize
                 
                 if [[ "$do_optimize" =~ ^[Yy]$ ]]; then
-                    # 调用 WARP 模块的优选函数
+                    # 调用 WARP 模块的优选函�?
                     local warp_manager="$VPSPLAY_DIR/modules/warp/manager.sh"
                     if [ -f "$warp_manager" ]; then
                         source "$warp_manager"
                         run_endpoint_optimize false
                     else
-                        echo -e "${Warning} WARP 模块未找到，跳过优选"
+                        echo -e "${Warning} WARP 模块未找到，跳过优�?
                     fi
                 fi
             else
                 local current_ep=$(cat "$warp_endpoint_file" 2>/dev/null)
-                echo -e "${Info} 使用已保存的优选 Endpoint: ${Cyan}$current_ep${Reset}"
+                echo -e "${Info} 使用已保存的优�?Endpoint: ${Cyan}$current_ep${Reset}"
             fi
         else
             WARP_ENABLED=false
@@ -223,10 +223,10 @@ ask_warp_outbound() {
     fi
 }
 
-# 获取 WARP Endpoint 配置 (优先使用 WARP 模块的优选结果)
-# 获取 WARP Endpoint 配置 (优先使用 WARP 模块的优选结果)
+# 获取 WARP Endpoint 配置 (优先使用 WARP 模块的优选结�?
+# 获取 WARP Endpoint 配置 (优先使用 WARP 模块的优选结�?
 get_warp_endpoint() {
-    # 优先读取 WARP 模块保存的优选 Endpoint
+    # 优先读取 WARP 模块保存的优�?Endpoint
     local warp_endpoint_file="$HOME/.vps-play/warp/data/endpoint"
     if [ -f "$warp_endpoint_file" ]; then
         local saved_ep=$(cat "$warp_endpoint_file" 2>/dev/null)
@@ -240,18 +240,18 @@ get_warp_endpoint() {
     local has_ipv4=false
     local has_ipv6=false
     
-    # 检测网络环境
+    # 检测网络环�?
     curl -s4m2 https://www.cloudflare.com/cdn-cgi/trace -k 2>/dev/null | grep -q "warp" && has_ipv4=true
     curl -s6m2 https://www.cloudflare.com/cdn-cgi/trace -k 2>/dev/null | grep -q "warp" && has_ipv6=true
     
-    # 备用检测
+    # 备用检�?
     if [ "$has_ipv4" = false ] && [ "$has_ipv6" = false ]; then
         ip -4 route show default 2>/dev/null | grep -q default && has_ipv4=true
         ip -6 route show default 2>/dev/null | grep -q default && has_ipv6=true
     fi
     
     if [ "$has_ipv6" = true ] && [ "$has_ipv4" = false ]; then
-        # 纯 IPv6 环境
+        # �?IPv6 环境
         echo "[2606:4700:d0::a29f:c001]:2408"
     else
         # IPv4 或双栈，使用默认 IP
@@ -259,10 +259,10 @@ get_warp_endpoint() {
     fi
 }
 
-# 生成 outbounds 和 route 配置
+# 生成 outbounds �?route 配置
 # 参数: $1 = 是否启用 WARP (true/false)
 # 参照 argosbx 的实现：
-# - 不启用 WARP: 只有 direct outbound，无 route 配置
+# - 不启�?WARP: 只有 direct outbound，无 route 配置
 # - 启用 WARP: outbounds (direct) + endpoints (warp-out) + route (final指向warp-out)
 get_outbounds_config() {
     local enable_warp=${1:-false}
@@ -272,7 +272,7 @@ get_outbounds_config() {
         local warp_ipv6="${WARP_IPV6:-2606:4700:110:8f1a:c53:a4c5:2249:1546}"
         local warp_reserved="${WARP_RESERVED:-[0,0,0]}"
         
-        # 解析 Endpoint IP 和端口
+        # 解析 Endpoint IP 和端�?
         local ep_ip=""
         local ep_port="2408"
         
@@ -288,7 +288,7 @@ get_outbounds_config() {
             ep_ip="$warp_endpoint"
         fi
         
-        # 使用 Sing-box 1.12+ 的 endpoints 字段 (argosbx 方案)
+        # 使用 Sing-box 1.12+ �?endpoints 字段 (argosbx 方案)
         cat << WARP_EOF
   "outbounds": [
     {
@@ -333,7 +333,7 @@ get_outbounds_config() {
   }
 WARP_EOF
     else
-        # 默认直连出站 (参照 argosbx: 不启用 WARP 时无 route 配置)
+        # 默认直连出站 (参照 argosbx: 不启�?WARP 时无 route 配置)
         cat << DIRECT_EOF
   "outbounds": [
     {
@@ -345,7 +345,7 @@ DIRECT_EOF
     fi
 }
 
-# ==================== 系统检测 ====================
+# ==================== 系统检�?====================
 REGEX=("debian" "ubuntu" "centos|red hat|kernel|oracle linux|alma|rocky" "'amazon linux'" "fedora" "alpine")
 RELEASE=("Debian" "Ubuntu" "CentOS" "CentOS" "Fedora" "Alpine")
 PACKAGE_UPDATE=("apt-get update" "apt-get update" "yum -y update" "yum -y update" "yum -y update" "apk update")
@@ -379,7 +379,7 @@ get_ip() {
 generate_self_signed_cert() {
     local domain=${1:-www.bing.com}
     
-    echo -e "${Info} 生成自签名证书 (域名: $domain)..."
+    echo -e "${Info} 生成自签名证�?(域名: $domain)..."
     
     if [ ! -d "$CERT_DIR" ]; then
         mkdir -p "$CERT_DIR"
@@ -393,7 +393,7 @@ generate_self_signed_cert() {
     
     # 如果生成失败，从 GitHub 下载备份证书 (参照 argosbx)
     if [ ! -f "$CERT_DIR/private.key" ] || [ ! -f "$CERT_DIR/cert.pem" ]; then
-        echo -e "${Warning} 本地证书生成失败，正在下载备用证书..."
+        echo -e "${Warning} 本地证书生成失败，正在下载备用证�?.."
         
         if command -v curl >/dev/null 2>&1; then
             curl -Ls -o "$CERT_DIR/private.key" "https://github.com/yonggekkk/argosbx/releases/download/argosbx/private.key" 2>/dev/null
@@ -419,15 +419,15 @@ generate_self_signed_cert() {
 apply_acme_cert() {
     echo -e "${Info} 使用 ACME 申请真实证书"
     
-    read -p "请输入域名: " domain
+    read -p "请输入域�? " domain
     [ -z "$domain" ] && { echo -e "${Error} 域名不能为空"; return 1; }
     
-    # 检查域名解析
+    # 检查域名解�?
     local domain_ip=$(dig +short "$domain" 2>/dev/null | head -1)
     local server_ip=$(get_ip)
     
     if [ "$domain_ip" != "$server_ip" ]; then
-        echo -e "${Warning} 域名解析的 IP ($domain_ip) 与服务器 IP ($server_ip) 不匹配"
+        echo -e "${Warning} 域名解析�?IP ($domain_ip) 与服务器 IP ($server_ip) 不匹�?
         read -p "是否继续? [y/N]: " continue_acme
         [[ ! $continue_acme =~ ^[Yy]$ ]] && return 1
     fi
@@ -459,7 +459,7 @@ apply_acme_cert() {
 cert_menu() {
     echo -e ""
     echo -e "${Info} 证书申请方式:"
-    echo -e " ${Green}1.${Reset} 自签名证书 (默认，推荐)"
+    echo -e " ${Green}1.${Reset} 自签名证�?(默认，推�?"
     echo -e " ${Green}2.${Reset} ACME 申请真实证书"
     echo -e " ${Green}3.${Reset} 使用已有证书"
     
@@ -489,7 +489,7 @@ cert_menu() {
                 cp "$custom_key" "$CERT_DIR/private.key"
                 read -p "证书域名: " CERT_DOMAIN
             else
-                echo -e "${Error} 证书文件不存在"
+                echo -e "${Error} 证书文件不存�?
                 return 1
             fi
             ;;
@@ -513,7 +513,7 @@ config_port() {
     while ss -tunlp 2>/dev/null | grep -qw ":$port "; do
         echo -e "${Warning} 端口 $port 已被占用" >&2
         port=$(shuf -i 10000-65535 -n 1)
-        echo -e "${Info} 自动分配新端口: $port" >&2
+        echo -e "${Info} 自动分配新端�? $port" >&2
     done
     
     echo -e "${Info} 使用端口: ${Cyan}$port${Reset}" >&2
@@ -539,7 +539,7 @@ version_ge() {
     if sort -V </dev/null >/dev/null 2>&1; then
         [ "$(echo -e "$1\n$2" | sort -V | head -n1)" = "$2" ]
     else
-        # 手动解析版本号 (awk)
+        # 手动解析版本�?(awk)
         # 假设版本号格式为 x.y.z
         local v1=$(echo "$1" | awk -F. '{ printf("%d%03d%03d\n", $1,$2,$3); }')
         local v2=$(echo "$2" | awk -F. '{ printf("%d%03d%03d\n", $1,$2,$3); }')
@@ -554,7 +554,7 @@ download_singbox() {
     # 确保目录存在
     mkdir -p "$SINGBOX_DIR" "$CERT_DIR" "$CONFIG_DIR"
     
-    # 直接使用 uname 检测系统类型 (修复 Serv00/FreeBSD 检测)
+    # 直接使用 uname 检测系统类�?(修复 Serv00/FreeBSD 检�?
     local os_type
     local arch_type
     
@@ -579,10 +579,10 @@ download_singbox() {
     
     cd "$SINGBOX_DIR" || { echo -e "${Error} 无法进入目录"; return 1; }
     
-    # 备份旧版本
+    # 备份旧版�?
     [ -f "$SINGBOX_BIN" ] && mv "$SINGBOX_BIN" "${SINGBOX_BIN}.bak"
     
-    # 下载并解压
+    # 下载并解�?
     echo -e "${Info} 下载地址: $download_url"
     
     local download_success=false
@@ -592,7 +592,7 @@ download_singbox() {
         if wget -q -O sing-box.tar.gz "$download_url"; then
             download_success=true
         else
-             echo -e "${Warning} wget 下载失败，尝试 curl..."
+             echo -e "${Warning} wget 下载失败，尝�?curl..."
         fi
     fi
     
@@ -611,22 +611,22 @@ download_singbox() {
         return 1
     fi
     
-    # 检查文件大小 (避免下载到空文件)
+    # 检查文件大�?(避免下载到空文件)
     if [ ! -s sing-box.tar.gz ]; then
-        echo -e "${Error} 下载的文件为空"
+        echo -e "${Error} 下载的文件为�?
         rm -f sing-box.tar.gz
         [ -f "${SINGBOX_BIN}.bak" ] && mv "${SINGBOX_BIN}.bak" "$SINGBOX_BIN"
         return 1
     fi
 
-    # 简单检查文件头是否为 gzip (1f 8b)
-    # 使用 hexdump 或 od，如果都没有则尝试直接解压
+    # 简单检查文件头是否�?gzip (1f 8b)
+    # 使用 hexdump �?od，如果都没有则尝试直接解�?
     local is_gzip=true
     if command -v head >/dev/null 2>&1 && command -v od >/dev/null 2>&1; then
         local magic=$(head -c 2 sing-box.tar.gz | od -An -t x1 | tr -d ' \n')
         if [ "$magic" != "1f8b" ]; then
             echo -e "${Error} 下载的文件不是有效的 gzip 文件 (Magic: $magic)"
-            # 可能是 HTML 错误页面，显示前几行
+            # 可能�?HTML 错误页面，显示前几行
             echo -e "${Info} 文件内容预览:"
             head -n 5 sing-box.tar.gz
             is_gzip=false
@@ -672,10 +672,10 @@ install_hysteria2() {
     echo -e ""
     echo -e "${Cyan}========== 安装 Hysteria2 节点 ==========${Reset}"
     
-    # 确保 sing-box 已安装
+    # 确保 sing-box 已安�?
     [ ! -f "$SINGBOX_BIN" ] && download_singbox
     
-    # 初始化 UUID 作为密码
+    # 初始�?UUID 作为密码
     init_uuid
     local password="$uuid"
     
@@ -686,7 +686,7 @@ install_hysteria2() {
     local saved_port=$(load_port "hy2")
     if [ -n "$saved_port" ]; then
         echo -e "${Info} 检测到已保存的端口: $saved_port"
-        read -p "使用此端口? [Y/n]: " use_saved
+        read -p "使用此端�? [Y/n]: " use_saved
         if [[ ! $use_saved =~ ^[Nn]$ ]]; then
             port="$saved_port"
         else
@@ -703,7 +703,7 @@ install_hysteria2() {
     # 端口跳跃
     echo -e ""
     echo -e "${Info} 是否启用端口跳跃?"
-    echo -e " ${Green}1.${Reset} 否，单端口 (默认)"
+    echo -e " ${Green}1.${Reset} 否，单端�?(默认)"
     echo -e " ${Green}2.${Reset} 是，端口跳跃"
     read -p "请选择 [1-2]: " jump_choice
     
@@ -717,7 +717,7 @@ install_hysteria2() {
             ip6tables -t nat -A PREROUTING -p udp --dport ${start_port}:${end_port} -j REDIRECT --to-ports $port 2>/dev/null
             port_hopping="${start_port}-${end_port}"
             echo "$port_hopping" > "$DATA_DIR/hy2_hopping"
-            echo -e "${Info} 端口跳跃已配置: $port_hopping -> $port"
+            echo -e "${Info} 端口跳跃已配�? $port_hopping -> $port"
         fi
     fi
     
@@ -784,16 +784,16 @@ install_anytls() {
     fi
     
     if [ -z "$current_ver" ] || ! version_ge "$current_ver" "$min_ver"; then
-        echo -e "${Warning} AnyTLS 需要 sing-box v${min_ver}+ (当前: ${current_ver:-未安装})"
+        echo -e "${Warning} AnyTLS 需�?sing-box v${min_ver}+ (当前: ${current_ver:-未安装})"
         echo -e "${Info} 正在自动升级内核..."
         download_singbox "$min_ver"
         if [ $? -ne 0 ]; then
-             echo -e "${Error} 内核升级失败，无法安装 AnyTLS"
+             echo -e "${Error} 内核升级失败，无法安�?AnyTLS"
              return 1
         fi
     fi
     
-    # 2. 初始化 UUID 作为密码
+    # 2. 初始�?UUID 作为密码
     init_uuid
     local password="$uuid"
     
@@ -801,7 +801,7 @@ install_anytls() {
     local saved_port=$(load_port "anytls")
     if [ -n "$saved_port" ]; then
         echo -e "${Info} 检测到已保存的端口: $saved_port"
-        read -p "使用此端口? [Y/n]: " use_saved
+        read -p "使用此端�? [Y/n]: " use_saved
         if [[ ! $use_saved =~ ^[Nn]$ ]]; then
             port="$saved_port"
         else
@@ -815,7 +815,7 @@ install_anytls() {
     save_port "anytls" "$port"
     echo -e "${Info} AnyTLS 端口: ${Cyan}$port${Reset}"
     
-    # 4. 生成自签证书（参照 argosbx 统一证书管理）
+    # 4. 生成自签证书（参�?argosbx 统一证书管理�?
     echo -e "${Info} 生成自签证书..."
     if ! generate_self_signed_cert "bing.com"; then
         echo -e "${Error} 证书准备失败"
@@ -872,7 +872,7 @@ EOF
 install_any_reality() {
     echo -e ""
     echo -e "${Cyan}========== 安装 Any-Reality 节点 ==========${Reset}"
-    echo -e "${Info} Any-Reality 是 AnyTLS 协议与 Reality 的组合"
+    echo -e "${Info} Any-Reality �?AnyTLS 协议�?Reality 的组�?
     
     # 1. 版本检查与升级
     local min_ver="1.12.0"
@@ -883,16 +883,16 @@ install_any_reality() {
     fi
     
     if [ -z "$current_ver" ] || ! version_ge "$current_ver" "$min_ver"; then
-        echo -e "${Warning} Any-Reality 需要 sing-box v${min_ver}+ (当前: ${current_ver:-未安装})"
+        echo -e "${Warning} Any-Reality 需�?sing-box v${min_ver}+ (当前: ${current_ver:-未安装})"
         echo -e "${Info} 正在自动升级内核..."
         download_singbox "$min_ver"
         if [ $? -ne 0 ]; then
-             echo -e "${Error} 内核升级失败，无法安装 Any-Reality"
+             echo -e "${Error} 内核升级失败，无法安�?Any-Reality"
              return 1
         fi
     fi
     
-    # 2. 初始化 UUID 作为密码
+    # 2. 初始�?UUID 作为密码
     init_uuid
     local password="$uuid"
     
@@ -900,7 +900,7 @@ install_any_reality() {
     local saved_port=$(load_port "anyreality")
     if [ -n "$saved_port" ]; then
         echo -e "${Info} 检测到已保存的端口: $saved_port"
-        read -p "使用此端口? [Y/n]: " use_saved
+        read -p "使用此端�? [Y/n]: " use_saved
         if [[ ! $use_saved =~ ^[Nn]$ ]]; then
             port="$saved_port"
         else
@@ -923,8 +923,8 @@ install_any_reality() {
     read -p "Server Name [${dest}]: " server_name
     server_name=${server_name:-$dest}
     
-    # 5. 生成 Reality 密钥对 (参照argosbx)
-    echo -e "${Info} 生成 Reality 密钥对..."
+    # 5. 生成 Reality 密钥�?(参照argosbx)
+    echo -e "${Info} 生成 Reality 密钥�?.."
     mkdir -p "$CERT_DIR/reality"
     
     if [ -e "$CERT_DIR/reality/private_key" ]; then
@@ -1006,13 +1006,13 @@ install_tuic() {
     echo -e ""
     echo -e "${Cyan}========== 安装 TUIC 节点 ==========${Reset}"
     
-    # 确保 sing-box 已安装
+    # 确保 sing-box 已安�?
     [ ! -f "$SINGBOX_BIN" ] && download_singbox
     
-    # 初始化 UUID 
+    # 初始�?UUID 
     init_uuid
     local tuic_uuid="$uuid"
-    local password="$uuid"   # TUIC 的 password 和 uuid 相同 (参照argosbx)
+    local password="$uuid"   # TUIC �?password �?uuid 相同 (参照argosbx)
     
     # 配置证书
     cert_menu
@@ -1021,7 +1021,7 @@ install_tuic() {
     local saved_port=$(load_port "tuic")
     if [ -n "$saved_port" ]; then
         echo -e "${Info} 检测到已保存的端口: $saved_port"
-        read -p "使用此端口? [Y/n]: " use_saved
+        read -p "使用此端�? [Y/n]: " use_saved
         if [[ ! $use_saved =~ ^[Nn]$ ]]; then
             port="$saved_port"
         else
@@ -1103,10 +1103,10 @@ install_vless_reality() {
     echo -e ""
     echo -e "${Cyan}========== 安装 VLESS Reality 节点 ==========${Reset}"
     
-    # 确保 sing-box 已安装
+    # 确保 sing-box 已安�?
     [ ! -f "$SINGBOX_BIN" ] && download_singbox
     
-    # 初始化 UUID
+    # 初始�?UUID
     init_uuid
     local vless_uuid="$uuid"
     
@@ -1114,7 +1114,7 @@ install_vless_reality() {
     local saved_port=$(load_port "vless")
     if [ -n "$saved_port" ]; then
         echo -e "${Info} 检测到已保存的端口: $saved_port"
-        read -p "使用此端口? [Y/n]: " use_saved
+        read -p "使用此端�? [Y/n]: " use_saved
         if [[ ! $use_saved =~ ^[Nn]$ ]]; then
             port="$saved_port"
         else
@@ -1137,8 +1137,8 @@ install_vless_reality() {
     read -p "Server Name [${dest}]: " server_name
     server_name=${server_name:-$dest}
     
-    # 生成 Reality 密钥对 (参照argosbx，复用已有密钥)
-    echo -e "${Info} 生成 Reality 密钥对..."
+    # 生成 Reality 密钥�?(参照argosbx，复用已有密�?
+    echo -e "${Info} 生成 Reality 密钥�?.."
     mkdir -p "$CERT_DIR/reality"
     
     if [ -e "$CERT_DIR/reality/private_key" ]; then
@@ -1215,18 +1215,18 @@ EOF
 # ==================== 服务管理 ====================
 start_singbox() {
     if [ ! -f "$SINGBOX_BIN" ]; then
-        echo -e "${Error} sing-box 未安装"
+        echo -e "${Error} sing-box 未安�?
         return 1
     fi
     
     if [ ! -f "$SINGBOX_CONF" ]; then
-        echo -e "${Error} 配置文件不存在"
+        echo -e "${Error} 配置文件不存�?
         return 1
     fi
     
     echo -e "${Info} 启动 sing-box..."
     
-    # 使用 systemd 或 OpenRC 或 nohup
+    # 使用 systemd �?OpenRC �?nohup
     if [ "$HAS_SYSTEMD" = true ] && [ "$HAS_ROOT" = true ]; then
         # 创建 systemd 服务
         cat > /etc/systemd/system/sing-box.service << EOF
@@ -1278,7 +1278,7 @@ depend() {
     after firewall
 }
 OPENRC_EOF
-        # 替换占位符
+        # 替换占位�?
         sed -i "s|SINGBOX_BIN_PLACEHOLDER|$SINGBOX_BIN|g" /etc/init.d/sing-box
         sed -i "s|SINGBOX_CONF_PLACEHOLDER|$SINGBOX_CONF|g" /etc/init.d/sing-box
         
@@ -1302,7 +1302,7 @@ OPENRC_EOF
 
 stop_singbox() {
     if [ ! -f "$SINGBOX_BIN" ]; then
-        echo -e "${Warning} sing-box 未安装"
+        echo -e "${Warning} sing-box 未安�?
         return 1
     fi
     
@@ -1322,7 +1322,7 @@ stop_singbox() {
     fi
     
     pkill -f "sing-box" 2>/dev/null
-    echo -e "${Info} sing-box 已停止"
+    echo -e "${Info} sing-box 已停�?
 }
 
 restart_singbox() {
@@ -1333,18 +1333,18 @@ restart_singbox() {
 
 status_singbox() {
     if [ ! -f "$SINGBOX_BIN" ]; then
-        echo -e "${Warning} sing-box 未安装"
+        echo -e "${Warning} sing-box 未安�?
         echo -e "${Tip} 请先选择 [1-3] 安装节点"
         return 1
     fi
     
-    echo -e "${Info} sing-box 状态:"
+    echo -e "${Info} sing-box 状�?"
     
     if pgrep -f "sing-box" &>/dev/null; then
-        echo -e "  运行状态: ${Green}运行中${Reset}"
+        echo -e "  运行状�? ${Green}运行�?{Reset}"
         echo -e "  进程 PID: $(pgrep -f 'sing-box' | head -1)"
     else
-        echo -e "  运行状态: ${Red}已停止${Reset}"
+        echo -e "  运行状�? ${Red}已停�?{Reset}"
     fi
     
     if [ -f "$SINGBOX_CONF" ]; then
@@ -1376,7 +1376,7 @@ display_all_nodes() {
         local hy2_password=$(grep -A10 '"hysteria2"' "$SINGBOX_CONF" | grep '"password"' | head -1 | sed 's/.*"\([^"]*\)".*/\1/')
         [ -z "$hy2_password" ] && hy2_password="$uuid"
         
-        echo -e "💣【 Hysteria2 】节点信息如下："
+        echo -e "💣�?Hysteria2 】节点信息如下："
         local hy2_link="hysteria2://${hy2_password}@${server_ip}:${hy2_port}?security=tls&alpn=h3&insecure=1&sni=www.bing.com#${hostname}-hy2"
         echo "$hy2_link" >> "$LINKS_FILE"
         echo -e "${Yellow}$hy2_link${Reset}"
@@ -1391,7 +1391,7 @@ display_all_nodes() {
         [ -z "$tuic_uuid" ] && tuic_uuid="$uuid"
         local tuic_password="$tuic_uuid"
         
-        echo -e "💣【 TUIC 】节点信息如下："
+        echo -e "💣�?TUIC 】节点信息如下："
         local tuic_link="tuic://${tuic_uuid}:${tuic_password}@${server_ip}:${tuic_port}?congestion_control=bbr&udp_relay_mode=native&alpn=h3&sni=www.bing.com&allow_insecure=1&allowInsecure=1#${hostname}-tuic"
         echo "$tuic_link" >> "$LINKS_FILE"
         echo -e "${Yellow}$tuic_link${Reset}"
@@ -1405,7 +1405,7 @@ display_all_nodes() {
         local an_password=$(grep -A10 '"anytls"' "$SINGBOX_CONF" | grep '"password"' | head -1 | sed 's/.*"\([^"]*\)".*/\1/')
         [ -z "$an_password" ] && an_password="$uuid"
         
-        echo -e "💣【 AnyTLS 】节点信息如下："
+        echo -e "💣�?AnyTLS 】节点信息如下："
         local an_link="anytls://${an_password}@${server_ip}:${an_port}?insecure=1&allowInsecure=1#${hostname}-anytls"
         echo "$an_link" >> "$LINKS_FILE"
         echo -e "${Yellow}$an_link${Reset}"
@@ -1423,7 +1423,7 @@ display_all_nodes() {
         local sni=$(grep -A20 '"anyreality' "$SINGBOX_CONF" | grep '"server_name"' | head -1 | sed 's/.*"\([^"]*\)".*/\1/')
         [ -z "$sni" ] && sni="apple.com"
         
-        echo -e "💣【 Any-Reality 】节点信息如下："
+        echo -e "💣�?Any-Reality 】节点信息如下："
         local ar_link="anytls://${ar_password}@${server_ip}:${ar_port}?security=reality&sni=${sni}&fp=chrome&pbk=${public_key}&sid=${short_id}&type=tcp&headerType=none#${hostname}-any-reality"
         echo "$ar_link" >> "$LINKS_FILE"
         echo -e "${Yellow}$ar_link${Reset}"
@@ -1441,7 +1441,7 @@ display_all_nodes() {
         local sni=$(grep -A20 '"vless"' "$SINGBOX_CONF" | grep '"server_name"' | head -1 | sed 's/.*"\([^"]*\)".*/\1/')
         [ -z "$sni" ] && sni="apple.com"
         
-        echo -e "💣【 VLESS-tcp-reality-vision 】节点信息如下："
+        echo -e "💣�?VLESS-tcp-reality-vision 】节点信息如下："
         local vl_link="vless://${vl_uuid}@${server_ip}:${vl_port}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${sni}&fp=chrome&pbk=${public_key}&sid=${short_id}&type=tcp&headerType=none#${hostname}-vless-reality"
         echo "$vl_link" >> "$LINKS_FILE"
         echo -e "${Yellow}$vl_link${Reset}"
@@ -1456,7 +1456,7 @@ display_all_nodes() {
         local ss_method=$(grep -A10 '"shadowsocks"' "$SINGBOX_CONF" | grep '"method"' | head -1 | sed 's/.*"\([^"]*\)".*/\1/')
         [ -z "$ss_method" ] && ss_method="2022-blake3-aes-128-gcm"
         
-        echo -e "💣【 Shadowsocks-2022 】节点信息如下："
+        echo -e "💣�?Shadowsocks-2022 】节点信息如下："
         local ss_link="ss://$(echo -n "${ss_method}:${ss_password}@${server_ip}:${ss_port}" | base64 -w0)#${hostname}-ss"
         echo "$ss_link" >> "$LINKS_FILE"
         echo -e "${Yellow}$ss_link${Reset}"
@@ -1465,7 +1465,7 @@ display_all_nodes() {
     
     echo -e "---------------------------------------------------------"
     echo -e "聚合节点信息已保存到: ${Cyan}$LINKS_FILE${Reset}"
-    echo -e "可运行 ${Yellow}cat $LINKS_FILE${Reset} 查看"
+    echo -e "可运�?${Yellow}cat $LINKS_FILE${Reset} 查看"
     echo -e "========================================================="
 }
 
@@ -1474,13 +1474,13 @@ show_node_info() {
     while true; do
         clear
         
-        # 使用统一的节点信息输出函数
+        # 使用统一的节点信息输出函�?
         display_all_nodes
         
         # 操作菜单
         echo -e ""
         echo -e "${Info} 节点管理选项:"
-        echo -e " ${Green}1.${Reset} 添加新节点 (保留现有节点)"
+        echo -e " ${Green}1.${Reset} 添加新节�?(保留现有节点)"
         echo -e " ${Green}2.${Reset} 重装现有节点 (重新生成配置)"
         echo -e " ${Green}3.${Reset} 修改节点参数"
         echo -e " ${Green}4.${Reset} 复制分享链接到剪贴板"
@@ -1498,14 +1498,14 @@ show_node_info() {
             *) echo -e "${Error} 无效选择" ;;
         esac
         
-        read -p "按回车继续..."
+        read -p "按回车继�?.."
     done
 }
 
 # 添加新节点到现有配置
 add_node_to_existing() {
     echo -e ""
-    echo -e "${Cyan}========== 添加新节点 ==========${Reset}"
+    echo -e "${Cyan}========== 添加新节�?==========${Reset}"
     echo -e "${Tip} 在当前运行的节点基础上添加新节点"
     echo -e ""
     echo -e " ${Green}1.${Reset} Hysteria2"
@@ -1529,13 +1529,13 @@ add_node_to_existing() {
     esac
 }
 
-# 添加 Hysteria2 协议到现有配置
+# 添加 Hysteria2 协议到现有配�?
 add_protocol_hy2() {
     echo -e "${Info} 添加 Hysteria2 节点..."
     
-    # 检查证书
-    if [ ! -f "$CERT_DIR/cert.crt" ]; then
-        echo -e "${Info} 需要配置 TLS 证书"
+    # 检查证�?
+    if [ ! -f "$CERT_DIR/cert.pem" ]; then
+        echo -e "${Info} 需要配�?TLS 证书"
         cert_menu
     fi
     
@@ -1546,15 +1546,15 @@ add_protocol_hy2() {
     # 读取现有配置并添加新 inbound
     if [ -f "$SINGBOX_CONF" ]; then
         local server_ip=$(get_ip)
-        local new_inbound="{\"type\":\"hysteria2\",\"tag\":\"hy2-add\",\"listen\":\"::\",\"listen_port\":${port},\"users\":[{\"password\":\"${password}\"}],\"tls\":{\"enabled\":true,\"alpn\":[\"h3\"],\"certificate_path\":\"${CERT_DIR}/cert.crt\",\"key_path\":\"${CERT_DIR}/private.key\"}}"
+        local new_inbound="{\"type\":\"hysteria2\",\"tag\":\"hy2-add\",\"listen\":\"::\",\"listen_port\":${port},\"users\":[{\"password\":\"${password}\"}],\"tls\":{\"enabled\":true,\"alpn\":[\"h3\"],\"certificate_path\":\"${CERT_DIR}/cert.pem\",\"key_path\":\"${CERT_DIR}/private.key\"}}"
         
         # 使用 jq 添加 inbound
         if command -v jq &>/dev/null; then
             local tmp_conf="${SINGBOX_CONF}.tmp"
             jq ".inbounds += [$new_inbound]" "$SINGBOX_CONF" > "$tmp_conf" && mv "$tmp_conf" "$SINGBOX_CONF"
         else
-            echo -e "${Warning} 需要 jq 来修改配置"
-            echo -e "${Tip} 请安装: apt install jq 或 yum install jq 或 apk add jq"
+            echo -e "${Warning} 需�?jq 来修改配�?
+            echo -e "${Tip} 请安�? apt install jq �?yum install jq �?apk add jq"
             return 1
         fi
         
@@ -1565,23 +1565,23 @@ add_protocol_hy2() {
         # 更新节点信息
         echo -e "\n[Hysteria2-Added]\n端口: ${port}\n密码: ${password}" >> "$SINGBOX_DIR/node_info.txt"
         
-        echo -e "${Info} Hysteria2 节点已添加"
+        echo -e "${Info} Hysteria2 节点已添�?
         echo -e "${Yellow}${hy2_link}${Reset}"
         
         # 重启服务
         restart_singbox
     else
-        echo -e "${Error} 配置文件不存在"
+        echo -e "${Error} 配置文件不存�?
     fi
 }
 
-# 添加 AnyTLS 协议到现有配置
+# 添加 AnyTLS 协议到现有配�?
 add_protocol_anytls() {
     echo -e "${Info} 添加 AnyTLS 节点..."
     
-    # 版本检查
+    # 版本检�?
     if ! version_ge "$(get_version)" "1.12.0"; then
-        echo -e "${Info} AnyTLS 需要升级 sing-box 到 1.12.0+"
+        echo -e "${Info} AnyTLS 需要升�?sing-box �?1.12.0+"
         download_singbox "1.12.0"
     fi
     
@@ -1611,8 +1611,8 @@ add_protocol_anytls() {
             local tmp_conf="${SINGBOX_CONF}.tmp"
             jq ".inbounds += [$anytls_inbound, $mixed_inbound]" "$SINGBOX_CONF" > "$tmp_conf" && mv "$tmp_conf" "$SINGBOX_CONF"
         else
-            echo -e "${Warning} 需要 jq 来修改配置"
-            echo -e "${Tip} 请安装: apt install jq 或 yum install jq 或 apk add jq"
+            echo -e "${Warning} 需�?jq 来修改配�?
+            echo -e "${Tip} 请安�? apt install jq �?yum install jq �?apk add jq"
             return 1
         fi
         
@@ -1623,22 +1623,22 @@ add_protocol_anytls() {
         # 更新节点信息
         echo -e "\n[AnyTLS-Added]\n端口: ${port}\n密码: ${password}\nSNI: ${server_ip}" >> "$SINGBOX_DIR/node_info.txt"
         
-        echo -e "${Info} AnyTLS 节点已添加"
+        echo -e "${Info} AnyTLS 节点已添�?
         echo -e "${Yellow}${anytls_link}${Reset}"
         
         restart_singbox
     else
-        echo -e "${Error} 配置文件不存在"
+        echo -e "${Error} 配置文件不存�?
     fi
 }
 
-# 添加其他协议的占位函数
+# 添加其他协议的占位函�?
 add_protocol_tuic() {
     echo -e "${Info} 添加 TUIC 节点..."
     
-    # 检查证书
-    if [ ! -f "$CERT_DIR/cert.crt" ]; then
-        echo -e "${Info} 需要配置 TLS 证书"
+    # 检查证�?
+    if [ ! -f "$CERT_DIR/cert.pem" ]; then
+        echo -e "${Info} 需要配�?TLS 证书"
         cert_menu
     fi
     
@@ -1649,14 +1649,14 @@ add_protocol_tuic() {
     
     if [ -f "$SINGBOX_CONF" ]; then
         local server_ip=$(get_ip)
-        local new_inbound="{\"type\":\"tuic\",\"tag\":\"tuic-add\",\"listen\":\"::\",\"listen_port\":${port},\"users\":[{\"uuid\":\"${uuid}\",\"password\":\"${password}\"}],\"congestion_control\":\"bbr\",\"tls\":{\"enabled\":true,\"alpn\":[\"h3\"],\"certificate_path\":\"${CERT_DIR}/cert.crt\",\"key_path\":\"${CERT_DIR}/private.key\"}}"
+        local new_inbound="{\"type\":\"tuic\",\"tag\":\"tuic-add\",\"listen\":\"::\",\"listen_port\":${port},\"users\":[{\"uuid\":\"${uuid}\",\"password\":\"${password}\"}],\"congestion_control\":\"bbr\",\"tls\":{\"enabled\":true,\"alpn\":[\"h3\"],\"certificate_path\":\"${CERT_DIR}/cert.pem\",\"key_path\":\"${CERT_DIR}/private.key\"}}"
         
         if command -v jq &>/dev/null; then
             local tmp_conf="${SINGBOX_CONF}.tmp"
             jq ".inbounds += [$new_inbound]" "$SINGBOX_CONF" > "$tmp_conf" && mv "$tmp_conf" "$SINGBOX_CONF"
         else
-            echo -e "${Warning} 需要 jq 来修改配置"
-            echo -e "${Tip} 请安装: apt install jq 或 yum install jq 或 apk add jq"
+            echo -e "${Warning} 需�?jq 来修改配�?
+            echo -e "${Tip} 请安�? apt install jq �?yum install jq �?apk add jq"
             return 1
         fi
         
@@ -1666,12 +1666,12 @@ add_protocol_tuic() {
         
         echo -e "\n[TUIC-Added]\n端口: ${port}\nUUID: ${uuid}\n密码: ${password}" >> "$SINGBOX_DIR/node_info.txt"
         
-        echo -e "${Info} TUIC 节点已添加"
+        echo -e "${Info} TUIC 节点已添�?
         echo -e "${Yellow}${tuic_link}${Reset}"
         
         restart_singbox
     else
-        echo -e "${Error} 配置文件不存在"
+        echo -e "${Error} 配置文件不存�?
     fi
 }
 
@@ -1681,7 +1681,7 @@ add_protocol_vless() {
     local port=$(config_port "VLESS Reality")
     local uuid=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen 2>/dev/null)
     
-    # 生成 Reality 密钥对
+    # 生成 Reality 密钥�?
     local keypair=$($SINGBOX_BIN generate reality-keypair 2>/dev/null)
     local private_key=$(echo "$keypair" | grep -i "privatekey" | awk '{print $2}')
     local public_key=$(echo "$keypair" | grep -i "publickey" | awk '{print $2}')
@@ -1696,7 +1696,7 @@ add_protocol_vless() {
             local tmp_conf="${SINGBOX_CONF}.tmp"
             jq ".inbounds += [$new_inbound]" "$SINGBOX_CONF" > "$tmp_conf" && mv "$tmp_conf" "$SINGBOX_CONF"
         else
-            echo -e "${Warning} 需要 jq 来修改配置"
+            echo -e "${Warning} 需�?jq 来修改配�?
             return 1
         fi
         
@@ -1706,21 +1706,21 @@ add_protocol_vless() {
         
         echo -e "\n[VLESS-Reality-Added]\n端口: ${port}\nUUID: ${uuid}\n公钥: ${public_key}\n短ID: ${short_id}" >> "$SINGBOX_DIR/node_info.txt"
         
-        echo -e "${Info} VLESS Reality 节点已添加"
+        echo -e "${Info} VLESS Reality 节点已添�?
         echo -e "${Yellow}${vless_link}${Reset}"
         
         restart_singbox
     else
-        echo -e "${Error} 配置文件不存在"
+        echo -e "${Error} 配置文件不存�?
     fi
 }
 
 add_protocol_any_reality() {
     echo -e "${Info} 添加 Any-Reality 节点..."
     
-    # 版本检查
+    # 版本检�?
     if ! version_ge "$(get_version)" "1.12.0"; then
-        echo -e "${Info} Any-Reality 需要升级 sing-box 到 1.12.0+"
+        echo -e "${Info} Any-Reality 需要升�?sing-box �?1.12.0+"
         download_singbox "1.12.0"
     fi
     
@@ -1728,7 +1728,7 @@ add_protocol_any_reality() {
     read -p "设置密码 [留空随机]: " password
     [ -z "$password" ] && password=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
     
-    # 生成 Reality 密钥对
+    # 生成 Reality 密钥�?
     local keypair=$($SINGBOX_BIN generate reality-keypair 2>/dev/null)
     local private_key=$(echo "$keypair" | grep -i "privatekey" | awk '{print $2}')
     local public_key=$(echo "$keypair" | grep -i "publickey" | awk '{print $2}')
@@ -1747,7 +1747,7 @@ add_protocol_any_reality() {
             local tmp_conf="${SINGBOX_CONF}.tmp"
             jq ".inbounds += [$ar_inbound, $mixed_inbound]" "$SINGBOX_CONF" > "$tmp_conf" && mv "$tmp_conf" "$SINGBOX_CONF"
         else
-            echo -e "${Warning} 需要 jq 来修改配置"
+            echo -e "${Warning} 需�?jq 来修改配�?
             return 1
         fi
         
@@ -1757,12 +1757,12 @@ add_protocol_any_reality() {
         
         echo -e "\n[Any-Reality-Added]\n端口: ${port}\n密码: ${password}\nSNI: ${server_name}\n公钥: ${public_key}\n短ID: ${short_id}" >> "$SINGBOX_DIR/node_info.txt"
         
-        echo -e "${Info} Any-Reality 节点已添加"
+        echo -e "${Info} Any-Reality 节点已添�?
         echo -e "${Yellow}${ar_link}${Reset}"
         
         restart_singbox
     else
-        echo -e "${Error} 配置文件不存在"
+        echo -e "${Error} 配置文件不存�?
     fi
 }
 
@@ -1771,16 +1771,16 @@ reinstall_existing_node() {
     echo -e ""
     
     if [ ! -f "$SINGBOX_CONF" ]; then
-        echo -e "${Warning} 当前没有配置，请先安装节点"
+        echo -e "${Warning} 当前没有配置，请先安装节�?
         return 1
     fi
     
-    # 读取当前配置，检测协议类型
+    # 读取当前配置，检测协议类�?
     local protocols=$(grep -o '"type": *"[^"]*"' "$SINGBOX_CONF" | grep -v direct | grep -v mixed | cut -d'"' -f4 | sort -u)
     local proto_count=$(echo "$protocols" | wc -w)
     
     echo -e "${Cyan}========== 重装节点 ==========${Reset}"
-    echo -e "${Info} 检测到以下协议 (共 $proto_count 个):"
+    echo -e "${Info} 检测到以下协议 (�?$proto_count �?:"
     echo -e ""
     
     local i=1
@@ -1793,10 +1793,10 @@ reinstall_existing_node() {
     
     echo -e ""
     echo -e "${Yellow}==================== 重装选项 ====================${Reset}"
-    echo -e " ${Green}A.${Reset} 重装全部节点 (删除所有配置重新安装)"
+    echo -e " ${Green}A.${Reset} 重装全部节点 (删除所有配置重新安�?"
     echo -e " ${Green}S.${Reset} 重装单个节点 (只重装选择的协议，保留其他)"
-    echo -e " ${Green}C.${Reset} 自定义组合重装 (选择多个协议重装)"
-    echo -e " ${Green}N.${Reset} 安装全新的协议组合"
+    echo -e " ${Green}C.${Reset} 自定义组合重�?(选择多个协议重装)"
+    echo -e " ${Green}N.${Reset} 安装全新的协议组�?
     echo -e " ${Green}0.${Reset} 取消"
     echo -e "${Yellow}=================================================${Reset}"
     
@@ -1831,14 +1831,14 @@ reinstall_all_nodes() {
     local protocols=$1
     
     echo -e ""
-    echo -e "${Warning} 重装全部将删除所有配置并重新安装，是否继续? [y/N]"
+    echo -e "${Warning} 重装全部将删除所有配置并重新安装，是否继�? [y/N]"
     read -p "" confirm
     [[ ! $confirm =~ ^[Yy]$ ]] && return 0
     
     stop_singbox
     rm -f "$SINGBOX_CONF" "$SINGBOX_DIR/node_info.txt" "$SINGBOX_DIR"/*_link.txt "$SINGBOX_DIR"/combo_links.txt
     
-    echo -e "${Info} 正在重装所有协议..."
+    echo -e "${Info} 正在重装所有协�?.."
     
     for proto in $protocols; do
         echo -e "${Info} 正在安装 $proto..."
@@ -1874,22 +1874,22 @@ reinstall_single_node() {
         local selected_proto="${proto_array[$((single_choice-1))]}"
         
         echo -e ""
-        echo -e "${Info} 将重装: ${Cyan}$selected_proto${Reset}"
-        echo -e "${Tip} 其他节点将保留不变"
+        echo -e "${Info} 将重�? ${Cyan}$selected_proto${Reset}"
+        echo -e "${Tip} 其他节点将保留不�?
         echo -e "${Warning} 是否继续? [y/N]"
         read -p "" confirm
         [[ ! $confirm =~ ^[Yy]$ ]] && return 0
         
-        # 使用 jq 或 sed 删除指定协议的 inbound
+        # 使用 jq �?sed 删除指定协议�?inbound
         if command -v jq &>/dev/null; then
-            # 使用 jq 删除指定类型的 inbound
+            # 使用 jq 删除指定类型�?inbound
             local tmp_conf="${SINGBOX_CONF}.tmp"
             jq --arg type "$selected_proto" '.inbounds = [.inbounds[] | select(.type != $type)]' "$SINGBOX_CONF" > "$tmp_conf" && mv "$tmp_conf" "$SINGBOX_CONF"
-            echo -e "${Info} 已删除 $selected_proto 配置 (jq)"
+            echo -e "${Info} 已删�?$selected_proto 配置 (jq)"
         else
             # 没有 jq，使用备用方案：重建整个配置
             echo -e "${Warning} 未检测到 jq，将使用备用方案"
-            echo -e "${Tip} 建议安装 jq: apt install jq 或 yum install jq 或 apk add jq"
+            echo -e "${Tip} 建议安装 jq: apt install jq �?yum install jq �?apk add jq"
             
             # 备用方案：停止服务，保存其他协议的配置，重建
             stop_singbox
@@ -1911,13 +1911,13 @@ reinstall_single_node() {
                 return 0
             fi
             
-            # 删除配置并重装
+            # 删除配置并重�?
             rm -f "$SINGBOX_CONF" "$SINGBOX_DIR/node_info.txt" "$SINGBOX_DIR"/*_link.txt "$SINGBOX_DIR"/combo_links.txt
             install_combo
             return 0
         fi
         
-        # 重新添加该协议
+        # 重新添加该协�?
         echo -e "${Info} 正在重新配置 $selected_proto..."
         case "$selected_proto" in
             hysteria2) add_protocol_hy2 ;;
@@ -1934,7 +1934,7 @@ reinstall_single_node() {
     fi
 }
 
-# 自定义组合重装
+# 自定义组合重�?
 reinstall_custom_nodes() {
     local proto_array=("$@")
     local proto_count=${#proto_array[@]}
@@ -1948,7 +1948,7 @@ reinstall_custom_nodes() {
         ((i++))
     done
     
-    read -p " 请输入: " custom_choice
+    read -p " 请输�? " custom_choice
     
     if [ -z "$custom_choice" ]; then
         echo -e "${Error} 未选择任何协议"
@@ -1972,33 +1972,33 @@ reinstall_custom_nodes() {
     fi
     
     echo -e ""
-    echo -e "${Info} 将重装以下协议:"
+    echo -e "${Info} 将重装以下协�?"
     for proto in "${selected_protos[@]}"; do
         echo -e "  - ${Cyan}$proto${Reset}"
     done
-    echo -e "${Tip} 其他节点将保留不变"
+    echo -e "${Tip} 其他节点将保留不�?
     echo -e "${Warning} 是否继续? [y/N]"
     read -p "" confirm
     [[ ! $confirm =~ ^[Yy]$ ]] && return 0
     
-    # 删除选中的协议
+    # 删除选中的协�?
     if command -v jq &>/dev/null; then
         for proto in "${selected_protos[@]}"; do
             local tmp_conf="${SINGBOX_CONF}.tmp"
             jq --arg type "$proto" '.inbounds = [.inbounds[] | select(.type != $type)]' "$SINGBOX_CONF" > "$tmp_conf" && mv "$tmp_conf" "$SINGBOX_CONF"
         done
-        echo -e "${Info} 已删除选中协议的配置"
+        echo -e "${Info} 已删除选中协议的配�?
     else
-        echo -e "${Warning} 未检测到 jq，无法进行部分重装"
-        echo -e "${Tip} 建议安装 jq: apt install jq 或 yum install jq 或 apk add jq"
-        echo -e "${Info} 将使用全量重装方案..."
+        echo -e "${Warning} 未检测到 jq，无法进行部分重�?
+        echo -e "${Tip} 建议安装 jq: apt install jq �?yum install jq �?apk add jq"
+        echo -e "${Info} 将使用全量重装方�?.."
         stop_singbox
         rm -f "$SINGBOX_CONF" "$SINGBOX_DIR/node_info.txt" "$SINGBOX_DIR"/*_link.txt "$SINGBOX_DIR"/combo_links.txt
         install_combo
         return 0
     fi
     
-    # 重新添加选中的协议
+    # 重新添加选中的协�?
     for proto in "${selected_protos[@]}"; do
         echo -e "${Info} 正在重新配置 $proto..."
         case "$proto" in
@@ -2009,7 +2009,7 @@ reinstall_custom_nodes() {
         esac
     done
     
-    echo -e "${Info} 自定义组合重装完成"
+    echo -e "${Info} 自定义组合重装完�?
 }
 
 # 修改节点参数
@@ -2018,7 +2018,7 @@ modify_node_params() {
     echo -e "${Cyan}========== 修改节点参数 ==========${Reset}"
     
     if [ ! -f "$SINGBOX_CONF" ]; then
-        echo -e "${Warning} 配置文件不存在"
+        echo -e "${Warning} 配置文件不存�?
         return 1
     fi
     
@@ -2031,7 +2031,7 @@ modify_node_params() {
     
     case "$modify_choice" in
         1)
-            read -p "新端口: " new_port
+            read -p "新端�? " new_port
             if [ -n "$new_port" ]; then
                 # 使用 sed 替换端口 (简化版)
                 sed -i "s/\"listen_port\": *[0-9]*/\"listen_port\": $new_port/" "$SINGBOX_CONF"
@@ -2040,15 +2040,15 @@ modify_node_params() {
             fi
             ;;
         2)
-            read -p "新密码: " new_password
+            read -p "新密�? " new_password
             if [ -n "$new_password" ]; then
                 sed -i "s/\"password\": *\"[^\"]*\"/\"password\": \"$new_password\"/" "$SINGBOX_CONF"
-                echo -e "${Info} 密码已修改"
+                echo -e "${Info} 密码已修�?
                 restart_singbox
             fi
             ;;
         3)
-            read -p "新 SNI: " new_sni
+            read -p "�?SNI: " new_sni
             if [ -n "$new_sni" ]; then
                 sed -i "s/\"server_name\": *\"[^\"]*\"/\"server_name\": \"$new_sni\"/" "$SINGBOX_CONF"
                 echo -e "${Info} SNI 已修改为 $new_sni"
@@ -2064,7 +2064,7 @@ modify_node_params() {
 # 复制分享链接
 copy_share_links() {
     echo -e ""
-    echo -e "${Cyan}========== 所有分享链接 ==========${Reset}"
+    echo -e "${Cyan}========== 所有分享链�?==========${Reset}"
     
     for link_file in "$SINGBOX_DIR"/*_link.txt "$SINGBOX_DIR"/combo_links.txt; do
         if [ -f "$link_file" ]; then
@@ -2074,7 +2074,7 @@ copy_share_links() {
     done
     
     echo -e ""
-    echo -e "${Tip} 请手动复制以上链接"
+    echo -e "${Tip} 请手动复制以上链�?
 }
 
 view_config() {
@@ -2083,13 +2083,13 @@ view_config() {
         cat "$SINGBOX_CONF"
         echo -e "${Green}=================================================${Reset}"
     else
-        echo -e "${Warning} 配置文件不存在"
+        echo -e "${Warning} 配置文件不存�?
     fi
 }
 
 # ==================== 卸载 ====================
 uninstall_singbox() {
-    echo -e "${Warning} 确定要卸载 sing-box? [y/N]"
+    echo -e "${Warning} 确定要卸�?sing-box? [y/N]"
     read -p "" confirm
     [[ ! $confirm =~ ^[Yy]$ ]] && return 0
     
@@ -2103,17 +2103,17 @@ uninstall_singbox() {
     fi
     
     rm -rf "$SINGBOX_DIR"
-    echo -e "${Info} sing-box 已卸载"
+    echo -e "${Info} sing-box 已卸�?
 }
 
-# ==================== 多协议组合安装 ====================
+# ==================== 多协议组合安�?====================
 install_combo() {
     echo -e ""
     echo -e "${Cyan}========== 自定义多协议组合 ==========${Reset}"
-    echo -e "${Tip} 选择要安装的协议组合，支持同时运行多个协议"
+    echo -e "${Tip} 选择要安装的协议组合，支持同时运行多个协�?
     echo -e ""
     
-    # 确保 sing-box 已安装
+    # 确保 sing-box 已安�?
     [ ! -f "$SINGBOX_BIN" ] && download_singbox
     
     # 协议选择
@@ -2159,24 +2159,24 @@ install_combo() {
         esac
     done
     
-    # AnyTLS/Any-Reality 版本检查
+    # AnyTLS/Any-Reality 版本检�?
     if [ "$install_anytls" = true ] || [ "$install_any_reality" = true ]; then
         if ! version_ge "$(get_version)" "1.12.0"; then
-            echo -e "${Info} AnyTLS/Any-Reality 需要升级 sing-box 到 1.12.0+，正在自动升级..."
+            echo -e "${Info} AnyTLS/Any-Reality 需要升�?sing-box �?1.12.0+，正在自动升�?.."
             download_singbox "1.12.0"
         fi
     fi
     
-    # 配置证书 (Hysteria2, TUIC, Trojan 需要)
+    # 配置证书 (Hysteria2, TUIC, Trojan 需�?
     if [ "$install_hy2" = true ] || [ "$install_tuic" = true ] || [ "$install_trojan" = true ]; then
         echo -e ""
-        echo -e "${Info} 检测到需要 TLS 证书的协议"
+        echo -e "${Info} 检测到需�?TLS 证书的协�?
         cert_menu
     fi
     
-    # 生成统一的 UUID 和密码 (FreeBSD 兼容)
+    # 生成统一�?UUID 和密�?(FreeBSD 兼容)
     init_uuid
-    local password="$uuid"  # 和 argosbx 一样，使用 UUID 作为密码
+    local password="$uuid"  # �?argosbx 一样，使用 UUID 作为密码
     
     echo -e ""
     echo -e "${Info} 统一认证信息:"
@@ -2284,7 +2284,7 @@ install_combo() {
       \"tls\": {
         \"enabled\": true,
         \"alpn\": [\"h3\"],
-        \"certificate_path\": \"${CERT_DIR}/cert.crt\",
+        \"certificate_path\": \"${CERT_DIR}/cert.pem\",
         \"key_path\": \"${CERT_DIR}/private.key\"
       }
     }"
@@ -2319,7 +2319,7 @@ hysteria2://${password}@${server_ip}:${hy2_port}?sni=${CERT_DOMAIN:-www.bing.com
       \"tls\": {
         \"enabled\": true,
         \"alpn\": [\"h3\"],
-        \"certificate_path\": \"${CERT_DIR}/cert.crt\",
+        \"certificate_path\": \"${CERT_DIR}/cert.pem\",
         \"key_path\": \"${CERT_DIR}/private.key\"
       }
     }"
@@ -2341,8 +2341,8 @@ tuic://${uuid}:${password}@${server_ip}:${tuic_port}?sni=${CERT_DOMAIN:-www.bing
         echo -e "${Info} 生成 Reality 密钥..."
         mkdir -p "$CERT_DIR/reality"
         
-        # 复用已有密钥或生成新的 (参照 argosbx)
-        # 检查已有密钥是否有效 (非空)
+        # 复用已有密钥或生成新�?(参照 argosbx)
+        # 检查已有密钥是否有�?(非空)
         if [ -s "$CERT_DIR/reality/private_key" ] && [ -s "$CERT_DIR/reality/public_key" ]; then
             private_key=$(cat "$CERT_DIR/reality/private_key")
             public_key=$(cat "$CERT_DIR/reality/public_key")
@@ -2350,9 +2350,9 @@ tuic://${uuid}:${password}@${server_ip}:${tuic_port}?sni=${CERT_DOMAIN:-www.bing
             echo -e "${Info} 使用已有 Reality 密钥"
         fi
         
-        # 如果密钥为空，重新生成
+        # 如果密钥为空，重新生�?
         if [ -z "$private_key" ] || [ -z "$public_key" ]; then
-            echo -e "${Info} 生成新的 Reality 密钥对..."
+            echo -e "${Info} 生成新的 Reality 密钥�?.."
             local keypair=$($SINGBOX_BIN generate reality-keypair 2>/dev/null)
             private_key=$(echo "$keypair" | awk '/PrivateKey/ {print $2}' | tr -d '"')
             public_key=$(echo "$keypair" | awk '/PublicKey/ {print $2}' | tr -d '"')
@@ -2364,17 +2364,17 @@ tuic://${uuid}:${password}@${server_ip}:${tuic_port}?sni=${CERT_DOMAIN:-www.bing
                 return 1
             fi
             
-            # FreeBSD 兼容的 short_id 生成
+            # FreeBSD 兼容�?short_id 生成
             short_id=$($SINGBOX_BIN generate rand --hex 4 2>/dev/null)
             [ -z "$short_id" ] && short_id=$(od -An -tx1 -N 4 /dev/urandom 2>/dev/null | tr -d ' \n')
             [ -z "$short_id" ] && short_id=$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom 2>/dev/null | head -c 8)
-            [ -z "$short_id" ] && short_id="12345678"  # 最后保底
+            [ -z "$short_id" ] && short_id="12345678"  # 最后保�?
             
             # 保存密钥
             echo "$private_key" > "$CERT_DIR/reality/private_key"
             echo "$public_key" > "$CERT_DIR/reality/public_key"
             echo "$short_id" > "$CERT_DIR/reality/short_id"
-            echo -e "${Info} Reality 密钥已保存"
+            echo -e "${Info} Reality 密钥已保�?
         fi
         local dest="apple.com"
         
@@ -2464,7 +2464,7 @@ ss://${ss_userinfo}@${server_ip}:${ss_port}#SS-${server_ip}"
       ],
       \"tls\": {
         \"enabled\": true,
-        \"certificate_path\": \"${CERT_DIR}/cert.crt\",
+        \"certificate_path\": \"${CERT_DIR}/cert.pem\",
         \"key_path\": \"${CERT_DIR}/private.key\"
       }
     }"
@@ -2496,7 +2496,7 @@ trojan://${password}@${server_ip}:${trojan_port}?sni=${CERT_DOMAIN:-www.bing.com
         
         local anytls_mixed_port=$(shuf -i 20000-60000 -n 1)
         [ -n "$inbounds" ] && inbounds="${inbounds},"
-        # 参照 argosbx 的简单配置，不需要 detour
+        # 参照 argosbx 的简单配置，不需�?detour
         inbounds="${inbounds}
     {
       \"type\": \"anytls\",
@@ -2518,7 +2518,7 @@ trojan://${password}@${server_ip}:${trojan_port}?sni=${CERT_DOMAIN:-www.bing.com
 密码: ${password}
 SNI: ${server_ip}
 证书: 自签证书
-说明: 需 sing-box 1.12.0+ 或 Clash Meta，客户端需启用 skip-cert-verify"
+说明: 需 sing-box 1.12.0+ �?Clash Meta，客户端需启用 skip-cert-verify"
 
     # 生成分享链接和JSON
     local anytls_link="anytls://${password}@${server_ip}:${anytls_port}?insecure=1&sni=${server_ip}&fp=chrome&alpn=h2,http/1.1&udp=1#AnyTLS-${server_ip}"
@@ -2529,10 +2529,10 @@ ${anytls_link}"
 
     # Any-Reality 配置
     if [ "$install_any_reality" = true ]; then
-        # 复用已有密钥或使用 VLESS 生成的密钥 (参照 argosbx)
+        # 复用已有密钥或使�?VLESS 生成的密�?(参照 argosbx)
         mkdir -p "$CERT_DIR/reality"
         
-        # 检查已有密钥是否有效 (非空)
+        # 检查已有密钥是否有�?(非空)
         if [ -s "$CERT_DIR/reality/private_key" ] && [ -s "$CERT_DIR/reality/public_key" ]; then
             private_key=$(cat "$CERT_DIR/reality/private_key")
             public_key=$(cat "$CERT_DIR/reality/public_key")
@@ -2540,9 +2540,9 @@ ${anytls_link}"
             echo -e "${Info} 使用已有 Reality 密钥"
         fi
         
-        # 如果密钥为空，重新生成
+        # 如果密钥为空，重新生�?
         if [ -z "$private_key" ] || [ -z "$public_key" ]; then
-            echo -e "${Info} 生成新的 Reality 密钥对..."
+            echo -e "${Info} 生成新的 Reality 密钥�?.."
             local keypair=$($SINGBOX_BIN generate reality-keypair 2>/dev/null)
             private_key=$(echo "$keypair" | awk '/PrivateKey/ {print $2}' | tr -d '"')
             public_key=$(echo "$keypair" | awk '/PublicKey/ {print $2}' | tr -d '"')
@@ -2554,23 +2554,23 @@ ${anytls_link}"
                 return 1
             fi
             
-            # FreeBSD 兼容的 short_id 生成
+            # FreeBSD 兼容�?short_id 生成
             short_id=$($SINGBOX_BIN generate rand --hex 4 2>/dev/null)
             [ -z "$short_id" ] && short_id=$(od -An -tx1 -N 4 /dev/urandom 2>/dev/null | tr -d ' \n')
             [ -z "$short_id" ] && short_id=$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom 2>/dev/null | head -c 8)
-            [ -z "$short_id" ] && short_id="12345678"  # 最后保底
+            [ -z "$short_id" ] && short_id="12345678"  # 最后保�?
             
             echo "$private_key" > "$CERT_DIR/reality/private_key"
             echo "$public_key" > "$CERT_DIR/reality/public_key"
             echo "$short_id" > "$CERT_DIR/reality/short_id"
-            echo -e "${Info} Reality 密钥已保存"
+            echo -e "${Info} Reality 密钥已保�?
         fi
         
         local ar_dest="apple.com"
         local ar_server_name="apple.com"
         
         [ -n "$inbounds" ] && inbounds="${inbounds},"
-        # 参照 argosbx 的简单配置，不需要 detour
+        # 参照 argosbx 的简单配置，不需�?detour
         inbounds="${inbounds}
     {
       \"type\": \"anytls\",
@@ -2636,8 +2636,8 @@ EOF
     [ "$install_trojan" = true ] && active_protocols="${active_protocols}Trojan "
     
     cat > "$SINGBOX_DIR/node_info.txt" << EOF
-============= 多协议组合节点 =============
-服务器: ${server_ip}
+============= 多协议组合节�?=============
+服务�? ${server_ip}
 启用协议: ${active_protocols}
 ${node_info}
 ==========================================
@@ -2646,9 +2646,9 @@ EOF
     echo "$links" > "$SINGBOX_DIR/combo_links.txt"
     
     echo -e ""
-    echo -e "${Green}========== 多协议组合安装完成 ==========${Reset}"
+    echo -e "${Green}========== 多协议组合安装完�?==========${Reset}"
     echo -e ""
-    echo -e " 服务器: ${Cyan}${server_ip}${Reset}"
+    echo -e " 服务�? ${Cyan}${server_ip}${Reset}"
     echo -e " 启用协议: ${Green}${active_protocols}${Reset}"
     echo -e ""
     
@@ -2683,13 +2683,13 @@ install_preset_combo() {
     echo -e "    ${Cyan}适合: 日常使用，UDP 游戏${Reset}"
     echo -e ""
     echo -e " ${Green}2.${Reset} 全能组合 (Hysteria2 + TUIC + VLESS Reality)"
-    echo -e "    ${Cyan}适合: 全场景覆盖${Reset}"
+    echo -e "    ${Cyan}适合: 全场景覆�?{Reset}"
     echo -e ""
     echo -e " ${Green}3.${Reset} 免费端口组合 (VLESS Reality + Shadowsocks)"
-    echo -e "    ${Cyan}适合: Serv00/无 UDP 环境${Reset}"
+    echo -e "    ${Cyan}适合: Serv00/�?UDP 环境${Reset}"
     echo -e ""
-    echo -e " ${Green}4.${Reset} 完整组合 (全部 5 种协议)"
-    echo -e "    ${Cyan}适合: 测试和特殊需求${Reset}"
+    echo -e " ${Green}4.${Reset} 完整组合 (全部 5 种协�?"
+    echo -e "    ${Cyan}适合: 测试和特殊需�?{Reset}"
     echo -e ""
     
     read -p "请选择预设 [1-4]: " preset_choice
@@ -2718,7 +2718,7 @@ install_preset_combo() {
 install_combo_internal() {
     local combo_choice=$1
     
-    # 确保 sing-box 已安装
+    # 确保 sing-box 已安�?
     [ ! -f "$SINGBOX_BIN" ] && download_singbox
     
     # 解析选择
@@ -2767,13 +2767,13 @@ install_combo_internal() {
     # 构建配置 (简化版，复用上面的逻辑)
     if [ "$install_hy2" = true ]; then
         [ -n "$inbounds" ] && inbounds="${inbounds},"
-        inbounds="${inbounds}{\"type\":\"hysteria2\",\"tag\":\"hy2\",\"listen\":\"::\",\"listen_port\":${hy2_port},\"users\":[{\"password\":\"${password}\"}],\"tls\":{\"enabled\":true,\"alpn\":[\"h3\"],\"certificate_path\":\"${CERT_DIR}/cert.crt\",\"key_path\":\"${CERT_DIR}/private.key\"}}"
+        inbounds="${inbounds}{\"type\":\"hysteria2\",\"tag\":\"hy2\",\"listen\":\"::\",\"listen_port\":${hy2_port},\"users\":[{\"password\":\"${password}\"}],\"tls\":{\"enabled\":true,\"alpn\":[\"h3\"],\"certificate_path\":\"${CERT_DIR}/cert.pem\",\"key_path\":\"${CERT_DIR}/private.key\"}}"
         links="${links}\nhysteria2://${password}@${server_ip}:${hy2_port}?sni=${CERT_DOMAIN:-www.bing.com}&insecure=1#Hy2"
     fi
     
     if [ "$install_tuic" = true ]; then
         [ -n "$inbounds" ] && inbounds="${inbounds},"
-        inbounds="${inbounds}{\"type\":\"tuic\",\"tag\":\"tuic\",\"listen\":\"::\",\"listen_port\":${tuic_port},\"users\":[{\"uuid\":\"${uuid}\",\"password\":\"${password}\"}],\"congestion_control\":\"bbr\",\"tls\":{\"enabled\":true,\"alpn\":[\"h3\"],\"certificate_path\":\"${CERT_DIR}/cert.crt\",\"key_path\":\"${CERT_DIR}/private.key\"}}"
+        inbounds="${inbounds}{\"type\":\"tuic\",\"tag\":\"tuic\",\"listen\":\"::\",\"listen_port\":${tuic_port},\"users\":[{\"uuid\":\"${uuid}\",\"password\":\"${password}\"}],\"congestion_control\":\"bbr\",\"tls\":{\"enabled\":true,\"alpn\":[\"h3\"],\"certificate_path\":\"${CERT_DIR}/cert.pem\",\"key_path\":\"${CERT_DIR}/private.key\"}}"
         links="${links}\ntuic://${uuid}:${password}@${server_ip}:${tuic_port}?sni=${CERT_DOMAIN:-www.bing.com}&congestion_control=bbr&alpn=h3&allow_insecure=1#TUIC"
     fi
     
@@ -2798,7 +2798,7 @@ install_combo_internal() {
     
     if [ "$install_trojan" = true ]; then
         [ -n "$inbounds" ] && inbounds="${inbounds},"
-        inbounds="${inbounds}{\"type\":\"trojan\",\"tag\":\"trojan\",\"listen\":\"::\",\"listen_port\":${trojan_port},\"users\":[{\"password\":\"${password}\"}],\"tls\":{\"enabled\":true,\"certificate_path\":\"${CERT_DIR}/cert.crt\",\"key_path\":\"${CERT_DIR}/private.key\"}}"
+        inbounds="${inbounds}{\"type\":\"trojan\",\"tag\":\"trojan\",\"listen\":\"::\",\"listen_port\":${trojan_port},\"users\":[{\"password\":\"${password}\"}],\"tls\":{\"enabled\":true,\"certificate_path\":\"${CERT_DIR}/cert.pem\",\"key_path\":\"${CERT_DIR}/private.key\"}}"
         links="${links}\ntrojan://${password}@${server_ip}:${trojan_port}?sni=${CERT_DOMAIN:-www.bing.com}&allowInsecure=1#Trojan"
     fi
     
@@ -2824,7 +2824,7 @@ install_combo_internal() {
         
         local warp_ipv6="${WARP_IPV6:-2606:4700:110:8f1a:c53:a4c5:2249:1546}"
         local warp_reserved="${WARP_RESERVED:-[0,0,0]}"
-        # 使用 argosbx 的正确格式：endpoint tag 为 warp-out，route.final 直接指向它
+        # 使用 argosbx 的正确格式：endpoint tag �?warp-out，route.final 直接指向�?
         outbounds_json="{\"type\":\"direct\",\"tag\":\"direct\"}],\"endpoints\":[{\"type\":\"wireguard\",\"tag\":\"warp-out\",\"address\":[\"172.16.0.2/32\",\"${warp_ipv6}/128\"],\"private_key\":\"${WARP_PRIVATE_KEY}\",\"peers\":[{\"address\":\"${ep_ip}\",\"port\":${ep_port},\"public_key\":\"bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=\",\"allowed_ips\":[\"0.0.0.0/0\",\"::/0\"],\"reserved\":${warp_reserved}}]}],\"route\":{\"rules\":[{\"action\":\"sniff\"},{\"action\":\"resolve\",\"strategy\":\"prefer_ipv4\"}],\"final\":\"warp-out\"}"
     else
         outbounds_json="{\"type\":\"direct\",\"tag\":\"direct\"}]"
@@ -2854,7 +2854,7 @@ view_logs() {
     
     # 优先使用 journalctl
     if command -v journalctl &>/dev/null && systemctl is-active sing-box &>/dev/null 2>&1; then
-        echo -e "${Info} 使用 journalctl 查看日志 (最近 50 行):"
+        echo -e "${Info} 使用 journalctl 查看日志 (最�?50 �?:"
         echo -e ""
         journalctl -u sing-box -n 50 --no-pager
     elif [ -f "$SINGBOX_LOG" ]; then
@@ -2862,10 +2862,10 @@ view_logs() {
         echo -e ""
         tail -n 50 "$SINGBOX_LOG"
     else
-        echo -e "${Warning} 未找到日志文件"
+        echo -e "${Warning} 未找到日志文�?
         echo -e ""
         echo -e "${Tip} 尝试查看 journalctl:"
-        journalctl -u sing-box -n 30 --no-pager 2>/dev/null || echo -e "${Error} journalctl 也没有日志"
+        journalctl -u sing-box -n 30 --no-pager 2>/dev/null || echo -e "${Error} journalctl 也没有日�?
     fi
     
     echo -e ""
@@ -2882,14 +2882,14 @@ view_config() {
         echo -e "${Info} 配置文件: $SINGBOX_CONF"
         echo -e ""
         
-        # 尝试用 jq 格式化，否则直接 cat
+        # 尝试�?jq 格式化，否则直接 cat
         if command -v jq &>/dev/null; then
             jq '.' "$SINGBOX_CONF" 2>/dev/null || cat "$SINGBOX_CONF"
         else
             cat "$SINGBOX_CONF"
         fi
     else
-        echo -e "${Error} 配置文件不存在: $SINGBOX_CONF"
+        echo -e "${Error} 配置文件不存�? $SINGBOX_CONF"
     fi
     
     echo -e ""
@@ -2902,7 +2902,7 @@ show_node_info() {
     echo -e "${Cyan}========== 节点信息 ==========${Reset}"
     echo -e ""
     
-    # 读取保存的链接
+    # 读取保存的链�?
     if [ -f "$SINGBOX_DIR/combo_links.txt" ]; then
         echo -e "${Info} 分享链接:"
         echo -e ""
@@ -2912,7 +2912,7 @@ show_node_info() {
         echo -e ""
         cat "$LINKS_FILE"
     else
-        echo -e "${Warning} 未找到节点链接文件"
+        echo -e "${Warning} 未找到节点链接文�?
         echo -e "${Tip} 请重新安装节点以生成链接"
     fi
     
@@ -2920,49 +2920,49 @@ show_node_info() {
     echo -e "${Green}===============================${Reset}"
 }
 
-# ==================== 主菜单 ====================
+# ==================== 主菜�?====================
 show_singbox_menu() {
     while true; do
         clear
         echo -e "${Cyan}"
         cat << "EOF"
-    ╔═╗╦╔╗╔╔═╗   ╔╗ ╔═╗═╗ ╦
-    ╚═╗║║║║║ ╦───╠╩╗║ ║╔╩╦╝
-    ╚═╝╩╝╚╝╚═╝   ╚═╝╚═╝╩ ╚═
-    多协议代理节点
+    ╔═╗╦╔╗╔╔═╗   ╔╗ ╔═╗═�?�?
+    ╚═╗║║║║║ ╦───╠╩╗║ ║╔╩╦�?
+    ╚═╝╩╝╚╝╚═╝   ╚═╝╚═╝�?╚═
+    多协议代理节�?
 EOF
         echo -e "${Reset}"
         
-        # 显示状态
+        # 显示状�?
         if [ -f "$SINGBOX_BIN" ]; then
-            echo -e " 安装状态: ${Green}已安装${Reset}"
+            echo -e " 安装状�? ${Green}已安�?{Reset}"
             if pgrep -f "sing-box" &>/dev/null; then
-                echo -e " 运行状态: ${Green}运行中${Reset}"
+                echo -e " 运行状�? ${Green}运行�?{Reset}"
             else
-                echo -e " 运行状态: ${Red}已停止${Reset}"
+                echo -e " 运行状�? ${Red}已停�?{Reset}"
             fi
         else
-            echo -e " 安装状态: ${Yellow}未安装${Reset}"
+            echo -e " 安装状�? ${Yellow}未安�?{Reset}"
         fi
         echo -e ""
         
         echo -e "${Green}==================== sing-box 管理 ====================${Reset}"
-        echo -e " ${Yellow}单协议安装${Reset}"
+        echo -e " ${Yellow}单协议安�?{Reset}"
         echo -e " ${Green}1.${Reset}  Hysteria2 (推荐)"
         echo -e " ${Green}2.${Reset}  TUIC v5"
         echo -e " ${Green}3.${Reset}  VLESS Reality"
-        echo -e " ${Green}4.${Reset}  AnyTLS (新)"
+        echo -e " ${Green}4.${Reset}  AnyTLS (�?"
         echo -e " ${Green}5.${Reset}  ${Cyan}Any-Reality${Reset} (AnyTLS + Reality)"
         echo -e "${Green}---------------------------------------------------${Reset}"
-        echo -e " ${Yellow}多协议组合${Reset}"
-        echo -e " ${Green}6.${Reset}  ${Cyan}自定义组合${Reset} (多选协议)"
-        echo -e " ${Green}7.${Reset}  ${Cyan}预设组合${Reset} (一键安装)"
+        echo -e " ${Yellow}多协议组�?{Reset}"
+        echo -e " ${Green}6.${Reset}  ${Cyan}自定义组�?{Reset} (多选协�?"
+        echo -e " ${Green}7.${Reset}  ${Cyan}预设组合${Reset} (一键安�?"
         echo -e "${Green}---------------------------------------------------${Reset}"
         echo -e " ${Yellow}服务管理${Reset}"
         echo -e " ${Green}8.${Reset}  启动"
         echo -e " ${Green}9.${Reset}  停止"
         echo -e " ${Green}10.${Reset} 重启"
-        echo -e " ${Green}11.${Reset} 查看状态"
+        echo -e " ${Green}11.${Reset} 查看状�?
         echo -e " ${Green}12.${Reset} ${Yellow}查看日志${Reset}"
         echo -e "${Green}---------------------------------------------------${Reset}"
         echo -e " ${Green}13.${Reset} 查看节点信息"
@@ -2970,7 +2970,7 @@ EOF
         echo -e " ${Green}15.${Reset} ${Cyan}配置 WARP 出站${Reset}"
         echo -e " ${Green}16.${Reset} 卸载 sing-box"
         echo -e "${Green}---------------------------------------------------${Reset}"
-        echo -e " ${Green}0.${Reset}  返回主菜单"
+        echo -e " ${Green}0.${Reset}  返回主菜�?
         echo -e "${Green}========================================================${Reset}"
         
         read -p " 请选择 [0-16]: " choice
@@ -2991,13 +2991,13 @@ EOF
             13) show_node_info ;;
             14) view_config ;;
             15)
-                # 调用 WARP 模块的函数
+                # 调用 WARP 模块的函�?
                 local warp_manager="$VPSPLAY_DIR/modules/warp/manager.sh"
                 if [ -f "$warp_manager" ]; then
                     source "$warp_manager"
                     configure_existing_warp_outbound
                 else
-                    echo -e "${Error} WARP 模块未找到"
+                    echo -e "${Error} WARP 模块未找�?
                 fi
                 ;;
             16) uninstall_singbox ;;
@@ -3006,11 +3006,11 @@ EOF
         esac
         
         echo -e ""
-        read -p "按回车继续..."
+        read -p "按回车继�?.."
     done
 }
 
-# ==================== 主程序 ====================
+# ==================== 主程�?====================
 if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
     [ -z "$ENV_TYPE" ] && detect_environment 2>/dev/null
     detect_system
