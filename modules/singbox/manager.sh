@@ -2862,6 +2862,81 @@ install_combo_internal() {
     [[ ! $start_now =~ ^[Nn]$ ]] && start_singbox
 }
 
+# ==================== 辅助功能 ====================
+# 查看日志
+view_logs() {
+    echo -e ""
+    echo -e "${Cyan}========== sing-box 日志 ==========${Reset}"
+    echo -e ""
+    
+    # 优先使用 journalctl
+    if command -v journalctl &>/dev/null && systemctl is-active sing-box &>/dev/null 2>&1; then
+        echo -e "${Info} 使用 journalctl 查看日志 (最近 50 行):"
+        echo -e ""
+        journalctl -u sing-box -n 50 --no-pager
+    elif [ -f "$SINGBOX_LOG" ]; then
+        echo -e "${Info} 日志文件: $SINGBOX_LOG"
+        echo -e ""
+        tail -n 50 "$SINGBOX_LOG"
+    else
+        echo -e "${Warning} 未找到日志文件"
+        echo -e ""
+        echo -e "${Tip} 尝试查看 journalctl:"
+        journalctl -u sing-box -n 30 --no-pager 2>/dev/null || echo -e "${Error} journalctl 也没有日志"
+    fi
+    
+    echo -e ""
+    echo -e "${Green}====================================${Reset}"
+}
+
+# 查看配置文件
+view_config() {
+    echo -e ""
+    echo -e "${Cyan}========== sing-box 配置 ==========${Reset}"
+    echo -e ""
+    
+    if [ -f "$SINGBOX_CONF" ]; then
+        echo -e "${Info} 配置文件: $SINGBOX_CONF"
+        echo -e ""
+        
+        # 尝试用 jq 格式化，否则直接 cat
+        if command -v jq &>/dev/null; then
+            jq '.' "$SINGBOX_CONF" 2>/dev/null || cat "$SINGBOX_CONF"
+        else
+            cat "$SINGBOX_CONF"
+        fi
+    else
+        echo -e "${Error} 配置文件不存在: $SINGBOX_CONF"
+    fi
+    
+    echo -e ""
+    echo -e "${Green}====================================${Reset}"
+}
+
+# 查看节点信息
+show_node_info() {
+    echo -e ""
+    echo -e "${Cyan}========== 节点信息 ==========${Reset}"
+    echo -e ""
+    
+    # 读取保存的链接
+    if [ -f "$SINGBOX_DIR/combo_links.txt" ]; then
+        echo -e "${Info} 分享链接:"
+        echo -e ""
+        cat "$SINGBOX_DIR/combo_links.txt"
+    elif [ -f "$LINKS_FILE" ]; then
+        echo -e "${Info} 分享链接:"
+        echo -e ""
+        cat "$LINKS_FILE"
+    else
+        echo -e "${Warning} 未找到节点链接文件"
+        echo -e "${Tip} 请重新安装节点以生成链接"
+    fi
+    
+    echo -e ""
+    echo -e "${Green}===============================${Reset}"
+}
+
 # ==================== 主菜单 ====================
 show_singbox_menu() {
     while true; do
@@ -2905,16 +2980,17 @@ EOF
         echo -e " ${Green}9.${Reset}  停止"
         echo -e " ${Green}10.${Reset} 重启"
         echo -e " ${Green}11.${Reset} 查看状态"
+        echo -e " ${Green}12.${Reset} ${Yellow}查看日志${Reset}"
         echo -e "${Green}---------------------------------------------------${Reset}"
-        echo -e " ${Green}12.${Reset} 查看节点信息"
-        echo -e " ${Green}13.${Reset} 查看配置文件"
-        echo -e " ${Green}14.${Reset} ${Cyan}配置 WARP 出站${Reset}"
-        echo -e " ${Green}15.${Reset} 卸载 sing-box"
+        echo -e " ${Green}13.${Reset} 查看节点信息"
+        echo -e " ${Green}14.${Reset} 查看配置文件"
+        echo -e " ${Green}15.${Reset} ${Cyan}配置 WARP 出站${Reset}"
+        echo -e " ${Green}16.${Reset} 卸载 sing-box"
         echo -e "${Green}---------------------------------------------------${Reset}"
         echo -e " ${Green}0.${Reset}  返回主菜单"
         echo -e "${Green}========================================================${Reset}"
         
-        read -p " 请选择 [0-15]: " choice
+        read -p " 请选择 [0-16]: " choice
         
         case "$choice" in
             1) install_hysteria2 ;;
@@ -2928,9 +3004,10 @@ EOF
             9) stop_singbox ;;
             10) restart_singbox ;;
             11) status_singbox ;;
-            12) show_node_info ;;
-            13) view_config ;;
-            14)
+            12) view_logs ;;
+            13) show_node_info ;;
+            14) view_config ;;
+            15)
                 # 调用 WARP 模块的函数
                 local warp_manager="$VPSPLAY_DIR/modules/warp/manager.sh"
                 if [ -f "$warp_manager" ]; then
@@ -2940,7 +3017,7 @@ EOF
                     echo -e "${Error} WARP 模块未找到"
                 fi
                 ;;
-            15) uninstall_singbox ;;
+            16) uninstall_singbox ;;
             0) return 0 ;;
             *) echo -e "${Error} 无效选择" ;;
         esac
