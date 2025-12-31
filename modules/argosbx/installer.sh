@@ -218,15 +218,25 @@ build_install_command() {
     [[ -n "$PORT_VMESS_ARGO" ]] && cmd_params+="vmpt=\"$PORT_VMESS_ARGO\" "
     [[ -n "$PORT_VLESS_WS" ]] && cmd_params+="vwpt=\"$PORT_VLESS_WS\" "
     
-    # WARP 出站
-    [[ "$ENABLE_WARP" == "yes" ]] && cmd_params+="warp=\"\" "
+    # WARP 出站 - 使用 warp="sx" 启用 sing-box 的 WARP
+    [[ "$ENABLE_WARP" == "yes" ]] && cmd_params+="warp=\"sx\" "
     
     # 自定义 UUID
     [[ -n "$CUSTOM_UUID" ]] && cmd_params+="uuid=\"$CUSTOM_UUID\" "
     
-    # Argo 隧道节点处理 - 添加 CDN 优选域名
+    # Argo 隧道节点处理
     if [[ -n "$PORT_VMESS_ARGO" ]] || [[ -n "$PORT_VLESS_WS" ]]; then
+        # 添加 CDN 优选域名
         cmd_params+="cdnym=\"$CDN_DOMAIN\" "
+        
+        # 添加 argo 参数启用隧道
+        if [[ -n "$PORT_VMESS_ARGO" ]] && [[ -n "$PORT_VLESS_WS" ]]; then
+            cmd_params+="argo=\"vmpt\" "
+        elif [[ -n "$PORT_VMESS_ARGO" ]]; then
+            cmd_params+="argo=\"vmpt\" "
+        elif [[ -n "$PORT_VLESS_WS" ]]; then
+            cmd_params+="argo=\"vwpt\" "
+        fi
         
         # 如果有 Token，添加域名和认证
         [[ -n "$ARGO_DOMAIN" ]] && cmd_params+="agn=\"$ARGO_DOMAIN\" "
