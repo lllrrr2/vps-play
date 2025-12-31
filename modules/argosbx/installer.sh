@@ -119,14 +119,12 @@ select_protocols() {
                 echo -e " ${Info} AnyTLS 端口: ${Cyan}${PORT_ANYTLS}${Reset}"
                 ;;
             6)
-                read -p " VMess-WS-Argo 端口 (留空自动分配): " port
-                PORT_VMESS_ARGO="${port:-$(get_random_port 8000 9000)}"
-                echo -e " ${Info} VMess-WS-Argo 端口: ${Cyan}${PORT_VMESS_ARGO}${Reset}"
+                PORT_VMESS_ARGO="enabled"
+                echo -e " ${Info} VMess-WS-Argo: ${Cyan}已选择${Reset} (使用标准回源端口)"
                 ;;
             7)
-                read -p " VLESS-WS-Argo 端口 (留空自动分配): " port
-                PORT_VLESS_WS="${port:-$(get_random_port 8000 9000)}"
-                echo -e " ${Info} VLESS-WS-Argo 端口: ${Cyan}${PORT_VLESS_WS}${Reset}"
+                PORT_VLESS_WS="enabled"
+                echo -e " ${Info} VLESS-WS-Argo: ${Cyan}已选择${Reset} (使用标准回源端口)"
                 ;;
             *)
                 echo -e " ${Warning} 无效选项: $choice，已忽略"
@@ -209,14 +207,16 @@ configure_argo() {
 build_install_command() {
     local cmd_params=""
     
-    # 协议端口参数
+    # 协议端口参数 (直连协议需要端口)
     [[ -n "$PORT_VLESS_REALITY" ]] && cmd_params+="vlpt=\"$PORT_VLESS_REALITY\" "
     [[ -n "$PORT_HYSTERIA2" ]] && cmd_params+="hypt=\"$PORT_HYSTERIA2\" "
     [[ -n "$PORT_TUIC" ]] && cmd_params+="tupt=\"$PORT_TUIC\" "
     [[ -n "$PORT_XHTTP" ]] && cmd_params+="xhpt=\"$PORT_XHTTP\" "
     [[ -n "$PORT_ANYTLS" ]] && cmd_params+="anpt=\"$PORT_ANYTLS\" "
-    [[ -n "$PORT_VMESS_ARGO" ]] && cmd_params+="vmpt=\"$PORT_VMESS_ARGO\" "
-    [[ -n "$PORT_VLESS_WS" ]] && cmd_params+="vwpt=\"$PORT_VLESS_WS\" "
+    
+    # Argo 协议使用空值 (argosbx 会使用标准回源端口)
+    [[ -n "$PORT_VMESS_ARGO" ]] && cmd_params+="vmpt=\"\" "
+    [[ -n "$PORT_VLESS_WS" ]] && cmd_params+="vwpt=\"\" "
     
     # WARP 出站 - 使用 warp="sx" 启用 sing-box 的 WARP
     [[ "$ENABLE_WARP" == "yes" ]] && cmd_params+="warp=\"sx\" "
@@ -322,7 +322,7 @@ quick_install_menu() {
             PORT_VLESS_REALITY=$(get_random_port 10000 20000)
             ;;
         6)
-            PORT_VMESS_ARGO=$(get_random_port 8000 9000)
+            PORT_VMESS_ARGO="enabled"
             ;;
         0)
             return 1
