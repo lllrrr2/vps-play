@@ -565,35 +565,33 @@ show_main_menu() {
     
     echo -e "${Green}==================== 主菜单 ====================${Reset}"
     echo -e " ${Green}代理节点${Reset}"
-    echo -e " ${Green}1.${Reset}  sing-box 节点"
-    echo -e " ${Green}2.${Reset}  Argo 节点 ${Cyan}(Cloudflare 隧道)${Reset}"
-    echo -e " ${Green}3.${Reset}  ${Cyan}ArgosBX 安装器${Reset} ${Yellow}(甬哥脚本)${Reset}"
-    echo -e " ${Green}4.${Reset}  GOST 中转"
-    echo -e " ${Green}5.${Reset}  X-UI 面板"
+    echo -e " ${Green}1.${Reset}  ${Cyan}ArgosBX 安装器${Reset} ${Yellow}(甬哥脚本)${Reset}"
+    echo -e " ${Green}2.${Reset}  GOST 中转"
+    echo -e " ${Green}3.${Reset}  X-UI 面板"
     echo -e "${Green}---------------------------------------------------${Reset}"
     echo -e " ${Green}内网穿透${Reset}"
-    echo -e " ${Green}6.${Reset}  FRPC 客户端"
-    echo -e " ${Green}7.${Reset}  FRPS 服务端"
-    echo -e " ${Green}8.${Reset}  Cloudflared 隧道"
+    echo -e " ${Green}4.${Reset}  FRPC 客户端"
+    echo -e " ${Green}5.${Reset}  FRPS 服务端"
+    echo -e " ${Green}6.${Reset}  Cloudflared 隧道"
     echo -e "${Green}---------------------------------------------------${Reset}"
     echo -e " ${Green}服务器管理${Reset}"
-    echo -e " ${Green}9.${Reset}  跳板服务器 ${Cyan}(SSH 管理)${Reset}"
-    echo -e " ${Green}10.${Reset} 哪吒监控"
-    echo -e " ${Green}11.${Reset} WARP 代理"
-    echo -e " ${Green}12.${Reset} Docker 管理"
-    echo -e " ${Green}13.${Reset} VPS 测评"
-    echo -e " ${Green}14.${Reset} 流量统计 ${Cyan}(API)${Reset}"
+    echo -e " ${Green}7.${Reset}  跳板服务器 ${Cyan}(SSH 管理)${Reset}"
+    echo -e " ${Green}8.${Reset}  哪吒监控"
+    echo -e " ${Green}9.${Reset}  WARP 代理"
+    echo -e " ${Green}10.${Reset} Docker 管理"
+    echo -e " ${Green}11.${Reset} VPS 测评"
+    echo -e " ${Green}12.${Reset} 流量统计 ${Cyan}(API)${Reset}"
     echo -e "${Green}---------------------------------------------------${Reset}"
     echo -e " ${Yellow}系统工具${Reset}"
-    echo -e " ${Green}15.${Reset} 端口管理"
-    echo -e " ${Green}16.${Reset} 进程管理"
-    echo -e " ${Green}17.${Reset} 网络工具"
-    echo -e " ${Green}18.${Reset} 环境检测"
-    echo -e " ${Green}19.${Reset} 保活设置"
-    echo -e " ${Green}20.${Reset} ${Cyan}Swap 管理${Reset} (小内存必备)"
-    echo -e " ${Green}21.${Reset} 更新脚本"
-    echo -e " ${Green}22.${Reset} 系统清理"
-    echo -e " ${Red}23.${Reset} ${Red}卸载脚本${Reset}"
+    echo -e " ${Green}13.${Reset} 端口管理"
+    echo -e " ${Green}14.${Reset} 进程管理"
+    echo -e " ${Green}15.${Reset} 网络工具"
+    echo -e " ${Green}16.${Reset} 环境检测"
+    echo -e " ${Green}17.${Reset} 保活设置"
+    echo -e " ${Green}18.${Reset} ${Cyan}Swap 管理${Reset} (小内存必备)"
+    echo -e " ${Green}19.${Reset} 更新脚本"
+    echo -e " ${Green}20.${Reset} 系统清理"
+    echo -e " ${Red}21.${Reset} ${Red}卸载脚本${Reset}"
     echo -e "${Green}---------------------------------------------------${Reset}"
     echo -e " ${Green}0.${Reset}  退出"
     echo -e "${Green}=================================================${Reset}"
@@ -629,52 +627,46 @@ main_loop() {
     while true; do
         show_main_menu
         
-        read -p " 请选择 [0-23]: " choice
+        read -p " 请选择 [0-21]: " choice
         
         case "$choice" in
             1)
-                run_module "sing-box" "modules/singbox/manager.sh"
-                ;;
-            2)
-                run_module "Argo节点" "modules/argo/manager.sh"
-                ;;
-            3)
                 run_module "ArgosBX" "modules/argosbx/installer.sh"
                 ;;
-            4)
+            2)
                 run_module "GOST" "modules/gost/manager.sh"
                 ;;
-            5)
+            3)
                 run_module "X-UI" "modules/xui/manager.sh"
                 ;;
-            6)
+            4)
                 run_module "FRPC" "modules/frpc/manager.sh"
                 ;;
-            7)
+            5)
                 run_module "FRPS" "modules/frps/manager.sh"
                 ;;
-            8)
+            6)
                 run_module "Cloudflared" "modules/cloudflared/manager.sh"
                 ;;
-            9)
+            7)
                 run_module "跳板服务器" "modules/jumper/manager.sh"
                 ;;
-            10)
+            8)
                 run_module "哪吒监控" "modules/nezha/manager.sh"
                 ;;
-            11)
+            9)
                 run_module "WARP" "modules/warp/manager.sh"
                 ;;
-            12)
+            10)
                 run_module "Docker" "modules/docker/manager.sh"
                 ;;
-            13)
+            11)
                 run_module "VPS测评" "modules/benchmark/manager.sh"
                 ;;
-            14)
+            12)
                 run_module "流量统计" "modules/stats/manager.sh"
                 ;;
-            15)
+            13)
                 if type port_manage_menu &>/dev/null; then
                     port_manage_menu
                 else
@@ -682,7 +674,7 @@ main_loop() {
                     echo -e "${Tip} 请尝试重新安装: curl -sL https://raw.githubusercontent.com/hxzlplp7/vps-play/main/install.sh | bash"
                 fi
                 ;;
-            16)
+            14)
                 # 进程管理
                 clear
                 echo -e "${Cyan}==================== 进程管理 ====================${Reset}"
@@ -747,7 +739,7 @@ main_loop() {
                         ;;
                 esac
                 ;;
-            17)
+            15)
                 # 网络工具
                 if type network_info &>/dev/null; then
                     network_info
@@ -756,7 +748,7 @@ main_loop() {
                     echo -e "${Tip} 查看 IP: curl -s ip.sb"
                 fi
                 ;;
-            18)
+            16)
                 if type detect_environment &>/dev/null; then
                     detect_environment
                     show_env_info 2>/dev/null || echo -e "${Info} 环境检测完成"
@@ -764,7 +756,7 @@ main_loop() {
                     echo -e "${Warning} 环境检测工具未加载"
                 fi
                 ;;
-            19)
+            17)
                 # 保活系统
                 if [ -f "$SCRIPT_DIR/keepalive/manager.sh" ]; then
                     bash "$SCRIPT_DIR/keepalive/manager.sh"
@@ -772,7 +764,7 @@ main_loop() {
                     echo -e "${Error} 保活模块未找到"
                 fi
                 ;;
-            20)
+            18)
                 # Swap 管理 - 调用 WARP 模块中的 Swap 管理函数
                 # 直接内嵌 Swap 管理功能
                 swap_menu() {
@@ -996,7 +988,7 @@ SWAP_EOF
                 }
                 swap_menu
                 ;;
-            21)
+            19)
                 echo -e "${Info} 更新脚本..."
                 echo -e ""
                 
@@ -1074,7 +1066,7 @@ SWAP_EOF
                     fi
                 fi
                 ;;
-            22)
+            20)
                 # 系统清理 - 尝试多个可能的路径
                 local clean_script=""
                 for _p in "$SCRIPT_DIR/utils/system_clean.sh" "$HOME/vps-play/utils/system_clean.sh" "/root/vps-play/utils/system_clean.sh"; do
@@ -1093,7 +1085,7 @@ SWAP_EOF
                     echo -e "  rm -rf /tmp/* /var/log/*.gz"
                 fi
                 ;;
-            23)
+            21)
                 # 卸载脚本
                 local uninstall_script=""
                 for _p in "$SCRIPT_DIR/uninstall.sh" "$HOME/vps-play/uninstall.sh" "/root/vps-play/uninstall.sh"; do
