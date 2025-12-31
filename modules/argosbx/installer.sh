@@ -83,10 +83,13 @@ select_protocols() {
     echo -e ""
     echo -e "${Green}======================================================${Reset}"
     echo -e ""
-    echo -e " ${Yellow}提示: 输入多个数字用空格分隔，例如: 1 2 3${Reset}"
+    echo -e " ${Yellow}提示: 输入多个数字用空格或逗号分隔，例如: 1 2 3 或 1,2,3${Reset}"
     echo -e ""
     
     read -p " 请选择要安装的协议 [1-7]: " choices
+    
+    # 将逗号替换为空格，支持两种分隔方式
+    choices=$(echo "$choices" | tr ',' ' ')
     
     for choice in $choices; do
         case $choice in
