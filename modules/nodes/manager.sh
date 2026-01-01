@@ -250,6 +250,7 @@ combo_install() {
     
     # 显示所有分享链接
     show_all_configs
+}
 
 # ==================== 自定义混合安装 ====================
 custom_mixed_install() {
