@@ -104,14 +104,24 @@ sb_generate_keys() {
 install_reality() {
     echo -e "${Cyan}========== 安装 Sing-box Reality (Misaka Logic) ==========${Reset}"
     
+    # 0. 检查依赖
+    if ! command -v curl &>/dev/null || ! command -v openssl &>/dev/null; then
+        sb_install_base
+    fi
+    
     # 1. 安装 Sing-box
     if ! command -v sing-box &>/dev/null; then
         download_singbox || return 1
     fi
     
     # 2. 配置参数
-    read -p "设置端口 [回车随机]: " port
-    [[ -z $port ]] && port=$(shuf -i 2000-65535 -n 1)
+    if [ -n "$SB_PORT" ]; then
+        echo -e "${Info} 使用预设端口: $SB_PORT"
+        port="$SB_PORT"
+    else
+        read -p "设置端口 [回车随机]: " port
+        [[ -z $port ]] && port=$(shuf -i 2000-65535 -n 1)
+    fi
     
     # 检查端口占用 (简单检查)
     while ss -tunlp | grep -q ":$port "; do

@@ -73,6 +73,16 @@ hy2_generate_password() {
 install_hysteria() {
     echo -e "${Cyan}========== 安装 Hysteria 2 (原生) ==========${Reset}"
     
+    # 0. 检查依赖
+    if ! command -v curl &>/dev/null || ! command -v wget &>/dev/null; then
+        echo -e "${Info} 安装依赖 (curl/wget)..."
+        if command -v apt-get &>/dev/null; then
+            apt-get update && apt-get install -y curl wget tar openssl
+        elif command -v yum &>/dev/null; then
+            yum update -y && yum install -y curl wget tar openssl
+        fi
+    fi
+
     # 1. 下载二进制
     local version=$(hy2_get_latest_version)
     if [ -z "$version" ]; then
@@ -83,8 +93,13 @@ install_hysteria() {
 
     # 2. 配置参数
     echo -e "${Info} 配置参数..."
-    read -p "请输入端口 [443]: " port
-    port=${port:-443}
+    if [ -n "$HY2_PORT" ]; then
+        echo -e "${Info} 使用预设端口: $HY2_PORT"
+        port="$HY2_PORT"
+    else
+        read -p "请输入端口 [443]: " port
+        port=${port:-443}
+    fi
     
     # 端口跳跃
     read -p "是否启用端口跳跃 (Port Hopping)? [y/N]: " enable_hop

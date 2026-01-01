@@ -131,6 +131,16 @@ tuic_install_acme_cert() {
 install_tuic() {
     echo -e "${Cyan}========== 安装 TUIC v5 (原生) ==========${Reset}"
     
+    # 0. 检查依赖
+    if ! command -v curl &>/dev/null || ! command -v socat &>/dev/null; then
+        echo -e "${Info} 安装依赖..."
+        if command -v apt-get &>/dev/null; then
+            apt-get update && apt-get install -y curl wget socat tar openssl
+        elif command -v yum &>/dev/null; then
+            yum update -y && yum install -y curl wget socat tar openssl
+        fi
+    fi
+    
     # 1. 下载
     tuic_download_binary || return 1
     
@@ -143,8 +153,13 @@ install_tuic() {
     tuic_install_acme_cert "$domain" || return 1
     
     # 3. 配置参数
-    read -p "请输入端口 [8443]: " port
-    port=${port:-8443}
+    if [ -n "$TUIC_PORT" ]; then
+        echo -e "${Info} 使用预设端口: $TUIC_PORT"
+        port="$TUIC_PORT"
+    else
+        read -p "请输入端口 [8443]: " port
+        port=${port:-8443}
+    fi
     
     local uuid=$(tuic_generate_uuid)
     local password=$(tuic_generate_password)

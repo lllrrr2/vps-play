@@ -40,6 +40,33 @@ custom_mixed_install() {
     echo -e "${Tip} 输入数字并用空格分隔 (例如: 1 3 或 1 2 3)"
     read -p "请选择: " -a custom_choices
     
+    # 预配置端口
+    echo -e ""
+    echo -e "${Info} 正在预配置端口信息..."
+    export HY2_PORT=""
+    export TUIC_PORT=""
+    export SB_PORT=""
+    
+    for choice in "${custom_choices[@]}"; do
+        case "$choice" in
+            1)
+                read -p "预设 Hysteria 2 端口 [443]: " hp
+                export HY2_PORT=${hp:-443}
+                ;;
+            2)
+                read -p "预设 TUIC v5 端口 [8443]: " tp
+                export TUIC_PORT=${tp:-8443}
+                ;;
+            3)
+                read -p "预设 Reality 端口 [随机]: " sp
+                export SB_PORT=$sp
+                ;;
+        esac
+    done
+    
+    echo -e ""
+    echo -e "${Info} 开始批量安装..."
+    
     for choice in "${custom_choices[@]}"; do
         case "$choice" in
             1)
