@@ -246,7 +246,10 @@ combo_install() {
     echo -e ""
     echo -e "${Green}========== 集合安装完成 ==========${Reset}"
     echo -e "${Info} 请检查各项服务的运行状态"
-}
+    echo -e ""
+    
+    # 显示所有分享链接
+    show_all_configs
 
 # ==================== 自定义混合安装 ====================
 custom_mixed_install() {
@@ -303,6 +306,10 @@ custom_mixed_install() {
     done
     
     echo -e "${Green}混合安装流程结束${Reset}"
+    echo -e ""
+    
+    # 显示所有分享链接
+    show_all_configs
 }
 
 # ==================== 卸载所有节点 ====================
@@ -314,6 +321,49 @@ uninstall_all_nodes() {
         uninstall_tuic 2>/dev/null
         uninstall_reality 2>/dev/null
         echo -e "${Green}全部卸载完成${Reset}"
+    fi
+}
+
+# ==================== 查看所有配置和分享链接 ====================
+show_all_configs() {
+    echo -e ""
+    echo -e "${Cyan}========== 节点配置和分享链接汇总 ==========${Reset}"
+    echo -e ""
+    
+    local has_nodes=false
+    
+    # Hysteria 2
+    if [ -f "/root/hy/url.txt" ]; then
+        has_nodes=true
+        echo -e "${Yellow}━━━━━━━━━━ Hysteria 2 ━━━━━━━━━━${Reset}"
+        echo -e "${Green}分享链接:${Reset}"
+        cat /root/hy/url.txt
+        echo -e ""
+    fi
+    
+    # TUIC
+    if [ -f "/root/tuic/url.txt" ]; then
+        has_nodes=true
+        echo -e "${Yellow}━━━━━━━━━━ TUIC v5 ━━━━━━━━━━${Reset}"
+        echo -e "${Green}分享链接:${Reset}"
+        cat /root/tuic/url.txt
+        echo -e ""
+    fi
+    
+    # Sing-box Reality
+    if [ -f "/root/sing-box/share-link.txt" ]; then
+        has_nodes=true
+        echo -e "${Yellow}━━━━━━━━━━ Sing-box Reality ━━━━━━━━━━${Reset}"
+        echo -e "${Green}分享链接:${Reset}"
+        cat /root/sing-box/share-link.txt
+        echo -e ""
+    fi
+    
+    if [ "$has_nodes" = false ]; then
+        echo -e "${Warning} 未检测到已安装的节点"
+    else
+        echo -e "${Cyan}=============================================${Reset}"
+        echo -e "${Info} 以上链接可直接导入客户端使用"
     fi
 }
 
@@ -336,8 +386,9 @@ nodes_menu() {
         echo -e " ${Green}6.${Reset} 查看运行状态"
         echo -e " ${Green}7.${Reset} 服务控制 (启动/停止/重启)"
         echo -e " ${Green}8.${Reset} 日志管理"
+        echo -e " ${Green}9.${Reset} ${Cyan}查看所有分享链接${Reset}"
         echo -e "${Green}---------------------------------------------------${Reset}"
-        echo -e " ${Green}9.${Reset} ${Red}卸载所有节点${Reset}"
+        echo -e " ${Green}10.${Reset} ${Red}卸载所有节点${Reset}"
         echo -e " ${Green}0.${Reset} 返回主菜单"
         echo -e "${Green}=================================================${Reset}"
         
@@ -352,7 +403,8 @@ nodes_menu() {
             6) show_all_status ;;
             7) service_control_menu ;;
             8) view_logs_menu ;;
-            9) uninstall_all_nodes ;;
+            9) show_all_configs ;;
+            10) uninstall_all_nodes ;;
             0) break ;;
             *) echo -e "${Error} 无效选择" ;;
         esac
