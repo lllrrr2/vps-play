@@ -111,7 +111,7 @@ EOF
     fi
     
     # 创建目录结构
-    mkdir -p "$INSTALL_DIR"/{utils,modules/{gost,xui,singbox,frpc,frps,cloudflared,nezha,warp,docker,benchmark,argo,argosbx,jumper,stats},keepalive,config}
+    mkdir -p "$INSTALL_DIR"/{utils,modules/{gost,xui,singbox,hysteria,tuic,frpc,frps,cloudflared,nezha,warp,docker,benchmark,argo,argosbx,jumper,stats},keepalive,config}
     
     # 下载文件函数
     download_file() {
@@ -147,6 +147,9 @@ EOF
     
     echo -e "${_Green}[信息]${_Reset} 下载功能模块..."
     download_file "modules/singbox/manager.sh"
+    download_file "modules/hysteria/manager.sh"
+    download_file "modules/tuic/manager.sh"
+    download_file "modules/nodes/manager.sh"
     download_file "modules/argo/manager.sh"
     download_file "modules/gost/manager.sh"
     download_file "modules/xui/manager.sh"
@@ -159,7 +162,6 @@ EOF
     download_file "modules/docker/manager.sh"
     download_file "modules/benchmark/manager.sh"
     download_file "modules/stats/manager.sh"
-    download_file "modules/argosbx/installer.sh"
     
     echo -e "${_Green}[信息]${_Reset} 下载保活模块..."
     download_file "keepalive/manager.sh"
@@ -565,7 +567,7 @@ show_main_menu() {
     
     echo -e "${Green}==================== 主菜单 ====================${Reset}"
     echo -e " ${Green}代理节点${Reset}"
-    echo -e " ${Green}1.${Reset}  ${Cyan}ArgosBX 安装器${Reset} ${Yellow}(甬哥脚本)${Reset}"
+    echo -e " ${Green}1.${Reset}  ${Cyan}节点管理 (混合搭建)${Reset} ${Yellow}(Hy2/Tuic/Reality)${Reset}"
     echo -e " ${Green}2.${Reset}  GOST 中转"
     echo -e " ${Green}3.${Reset}  X-UI 面板"
     echo -e "${Green}---------------------------------------------------${Reset}"
@@ -591,9 +593,9 @@ show_main_menu() {
     echo -e " ${Green}18.${Reset} ${Cyan}Swap 管理${Reset} (小内存必备)"
     echo -e " ${Green}19.${Reset} 更新脚本"
     echo -e " ${Green}20.${Reset} 系统清理"
-    echo -e " ${Red}21.${Reset} ${Red}卸载脚本${Reset}"
+    echo -e " ${Green}21.${Reset} ${Red}卸载脚本${Reset}"
     echo -e "${Green}---------------------------------------------------${Reset}"
-    echo -e " ${Green}0.${Reset}  退出"
+    echo -e " ${Red}0.${Reset}  退出"
     echo -e "${Green}=================================================${Reset}"
 }
 
@@ -631,7 +633,7 @@ main_loop() {
         
         case "$choice" in
             1)
-                run_module "ArgosBX" "modules/argosbx/installer.sh"
+                run_module "节点管理" "modules/nodes/manager.sh"
                 ;;
             2)
                 run_module "GOST" "modules/gost/manager.sh"
@@ -685,7 +687,7 @@ main_loop() {
                 # 检查常见进程
                 local found_process=false
                 
-                for proc in "sing-box" "gost" "cloudflared" "xray" "nezha-agent" "frpc" "frps"; do
+                for proc in "sing-box" "gost" "cloudflared" "xray" "nezha-agent" "frpc" "frps" "hysteria" "tuic"; do
                     local pids=$(pgrep -f "$proc" 2>/dev/null)
                     if [ -n "$pids" ]; then
                         found_process=true
@@ -729,13 +731,15 @@ main_loop() {
                             pkill -f "nezha-agent" 2>/dev/null
                             pkill -f "frpc" 2>/dev/null
                             pkill -f "frps" 2>/dev/null
+                            pkill -f "hysteria" 2>/dev/null
+                            pkill -f "tuic" 2>/dev/null
                             echo -e "${Info} 已停止所有进程"
                         fi
                         ;;
                     3)
                         echo -e ""
                         ps aux | head -1
-                        ps aux | grep -E "sing-box|gost|cloudflared|xray|nezha|frp" | grep -v grep
+                        ps aux | grep -E "sing-box|gost|cloudflared|xray|nezha|frp|hysteria|tuic" | grep -v grep
                         ;;
                 esac
                 ;;
@@ -1035,7 +1039,10 @@ SWAP_EOF
                 update_file "utils/system_clean.sh"
                 
                 echo -e "${Info} 更新功能模块..."
+                update_file "modules/nodes/manager.sh"
                 update_file "modules/singbox/manager.sh"
+                update_file "modules/hysteria/manager.sh"
+                update_file "modules/tuic/manager.sh"
                 update_file "modules/argo/manager.sh"
                 update_file "modules/gost/manager.sh"
                 update_file "modules/gost/gost.sh"
