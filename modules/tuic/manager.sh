@@ -50,6 +50,19 @@ tuic_archAffix() {
     esac
 }
 
+# 杀死占用端口的进程
+tuic_kill_port_process() {
+    local port=$1
+    local pids=$(ss -tunlp | grep ":$port " | grep -oP 'pid=\K[0-9]+')
+    if [ -n "$pids" ]; then
+        echo -e "${Warning} 检测到端口 $port 被占用，正在释放..."
+        for pid in $pids; do
+            kill -9 $pid 2>/dev/null && echo -e "${Info} 已杀死进程 $pid"
+        done
+        sleep 1
+    fi
+}
+
 tuic_realip() {
     ip=$(curl -s4m8 ip.sb -k) || ip=$(curl -s6m8 ip.sb -k)
 }
@@ -147,6 +160,9 @@ tuic_port() {
         done
     fi
     echo -e "${Info} 将使用端口：$tuic_server_port"
+    
+    # 释放端口
+    tuic_kill_port_process $tuic_server_port
 }
 
 # ==================== 安装逻辑 (V5) ====================

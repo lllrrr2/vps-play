@@ -41,6 +41,19 @@ for ((int = 0; int < ${#REGEX[@]}; int++)); do
     [[ $(echo "$SYS" | tr '[:upper:]' '[:lower:]') =~ ${REGEX[int]} ]] && SYSTEM="${RELEASE[int]}" && [[ -n $SYSTEM ]] && break
 done
 
+# 杀死占用端口的进程
+hy2_kill_port_process() {
+    local port=$1
+    local pids=$(ss -tunlp | grep ":$port " | grep -oP 'pid=\K[0-9]+')
+    if [ -n "$pids" ]; then
+        echo -e "${Warning} 检测到端口 $port 被占用，正在释放..."
+        for pid in $pids; do
+            kill -9 $pid 2>/dev/null && echo -e "${Info} 已杀死进程 $pid"
+        done
+        sleep 1
+    fi
+}
+
 hy2_realip() {
     ip=$(curl -s4m8 ip.sb -k) || ip=$(curl -s6m8 ip.sb -k)
 }
@@ -133,6 +146,9 @@ hy2_inst_port() {
         done
     fi
     echo -e "${Info} 将使用端口：$hy2_port"
+    
+    # 释放端口
+    hy2_kill_port_process $hy2_port
     
     # 端口跳跃
     read -p "是否启用端口跳跃? [y/N]: " jumpInput

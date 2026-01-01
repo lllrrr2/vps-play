@@ -51,6 +51,19 @@ sb_archAffix() {
     esac
 }
 
+# 杀死占用端口的进程
+sb_kill_port_process() {
+    local port=$1
+    local pids=$(ss -tunlp | grep ":$port " | grep -oP 'pid=\K[0-9]+')
+    if [ -n "$pids" ]; then
+        echo -e "${Warning} 检测到端口 $port 被占用，正在释放..."
+        for pid in $pids; do
+            kill -9 $pid 2>/dev/null && echo -e "${Info} 已杀死进程 $pid"
+        done
+        sleep 1
+    fi
+}
+
 sb_install_base() {
     if [[ ! $SYSTEM == "CentOS" ]]; then
         ${PACKAGE_UPDATE[int]}
@@ -119,6 +132,9 @@ install_reality() {
     # 回落域名
     read -rp "请输入配置回落的域名 [默认世嘉官网]: " sb_dest_server
     [[ -z $sb_dest_server ]] && sb_dest_server="www.sega.com"
+    
+    # 释放端口
+    sb_kill_port_process $sb_port
     
     # Reality 密钥
     sb_short_id=$(openssl rand -hex 8)
