@@ -106,6 +106,12 @@ sb_install_singbox() {
 install_reality() {
     echo -e "${Cyan}========== 安装 Sing-box Reality (Misaka Logic) ==========${Reset}"
     
+    # 清理旧配置
+    echo -e "${Info} 清理旧配置文件..."
+    systemctl stop sing-box >/dev/null 2>&1
+    systemctl disable sing-box >/dev/null 2>&1
+    rm -rf "$SB_CONFIG_DIR" "$SB_CLIENT_DIR"
+    
     # 安装 Sing-box
     if ! command -v sing-box &>/dev/null; then
         sb_install_singbox || return 1

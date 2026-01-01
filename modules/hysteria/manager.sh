@@ -167,6 +167,12 @@ hy2_inst_port() {
 install_hysteria() {
     echo -e "${Cyan}========== 安装 Hysteria 2 (Misaka Logic) ==========${Reset}"
     
+    # 清理旧配置
+    echo -e "${Info} 清理旧配置文件..."
+    systemctl stop hysteria-server >/dev/null 2>&1
+    systemctl disable hysteria-server >/dev/null 2>&1
+    rm -rf "$HY2_CONFIG_DIR" "$HY2_CLIENT_DIR"
+    
     # 检测 WARP 并获取真实 IP
     warpv6=$(curl -s6m8 https://www.cloudflare.com/cdn-cgi/trace -k | grep warp | cut -d= -f2)
     warpv4=$(curl -s4m8 https://www.cloudflare.com/cdn-cgi/trace -k | grep warp | cut -d= -f2)

@@ -169,6 +169,12 @@ tuic_port() {
 install_tuic() {
     echo -e "${Cyan}========== 安装 TUIC v5 (Misaka Logic) ==========${Reset}"
     
+    # 清理旧配置
+    echo -e "${Info} 清理旧配置文件..."
+    systemctl stop tuic >/dev/null 2>&1
+    systemctl disable tuic >/dev/null 2>&1
+    rm -rf "$TUIC_CONFIG_DIR" "$TUIC_CLIENT_DIR" "$TUIC_BING_DIR"
+    
     tuic_check_ip
     
     # 安装依赖
