@@ -527,7 +527,7 @@ run_traceroute() {
                     nexttrace "$target_ip"
                 else
                     echo -e "${Error} NextTrace 安装失败"
-                    echo -e "${Tip} 请手动安装: curl -Ls https://nxtrace.org/nt | bash"
+                    echo -e "${Tip} 请手动安装: curl -fsSL https://nxtrace.org/nt -o /tmp/nt.sh && bash /tmp/nt.sh"
                 fi
                 ;;
             2)

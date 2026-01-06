@@ -663,7 +663,7 @@ run_module() {
     
     echo -e "${Error} $module_name 模块未找到"
     echo -e "${Tip} 请检查安装目录: $SCRIPT_DIR"
-    echo -e "${Tip} 尝试重新安装: curl -sL https://raw.githubusercontent.com/hxzlplp7/vps-play/main/install.sh | bash"
+    echo -e "${Tip} 尝试重新安装: curl -fsSL ${REPO_RAW}/install.sh -o /tmp/install.sh && bash /tmp/install.sh"
     return 1
 }
 
@@ -716,7 +716,7 @@ main_loop() {
                     port_manage_menu
                 else
                     echo -e "${Warning} 端口管理工具未加载"
-                    echo -e "${Tip} 请尝试重新安装: curl -sL https://raw.githubusercontent.com/hxzlplp7/vps-play/main/install.sh | bash"
+                    echo -e "${Tip} 请尝试重新安装: curl -fsSL ${REPO_RAW}/install.sh -o /tmp/install.sh && bash /tmp/install.sh"
                 fi
                 ;;
             14)
