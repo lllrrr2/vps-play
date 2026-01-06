@@ -31,6 +31,22 @@ TUNNEL_PIDS_FILE="$JUMPER_DIR/tunnels.pid"
 
 mkdir -p "$JUMPER_DIR" "$KEYS_DIR"
 
+# ==================== SSH 安全配置 ====================
+# 检测 OpenSSH 版本是否支持 accept-new（7.6+）
+# 使用 accept-new 比 no 更安全：接受新主机但拒绝已知主机的 key 变更
+_ssh_strict_opt() {
+    local v major minor
+    v="$(ssh -V 2>&1 | sed -n 's/.*OpenSSH_\([0-9]\+\)\.\([0-9]\+\).*/\1 \2/p')"
+    major="${v%% *}"; minor="${v##* }"
+    # accept-new 需要 OpenSSH >= 7.6
+    if [[ -n "$major" && -n "$minor" ]] && (( major > 7 || (major == 7 && minor >= 6) )); then
+        echo "StrictHostKeyChecking=accept-new"
+    else
+        # 旧版本回退到 no（兼容性）
+        echo "StrictHostKeyChecking=no"
+    fi
+}
+
 # ==================== 服务器管理 ====================
 # 添加服务器
 add_server() {
@@ -217,14 +233,14 @@ connect_server() {
     case "$auth_method" in
         password)
             if command -v sshpass &>/dev/null; then
-                sshpass -p "$auth_data" ssh -o StrictHostKeyChecking=no -p "$port" "${user}@${host}"
+                sshpass -p "$auth_data" ssh -o "$(_ssh_strict_opt)" -p "$port" "${user}@${host}"
             else
                 echo -e "${Warning} sshpass 未安装，请手动输入密码"
-                ssh -o StrictHostKeyChecking=no -p "$port" "${user}@${host}"
+                ssh -o "$(_ssh_strict_opt)" -p "$port" "${user}@${host}"
             fi
             ;;
         key)
-            ssh -o StrictHostKeyChecking=no -i "$auth_data" -p "$port" "${user}@${host}"
+            ssh -o "$(_ssh_strict_opt)" -i "$auth_data" -p "$port" "${user}@${host}"
             ;;
     esac
 }
@@ -250,7 +266,7 @@ test_connection() {
     case "$auth_method" in
         password)
             if command -v sshpass &>/dev/null; then
-                local ssh_opts="-o StrictHostKeyChecking=no -o ConnectTimeout=10 -o BatchMode=yes"
+                local ssh_opts="-o $(_ssh_strict_opt) -o ConnectTimeout=10 -o BatchMode=yes"
                 local result=$(sshpass -p "$auth_data" ssh $ssh_opts -p "$port" "${user}@${host}" "echo ok" 2>&1)
                 if [ "$result" = "ok" ]; then
                     echo -e "${Info} ${Green}连接成功${Reset}"
@@ -262,12 +278,12 @@ test_connection() {
             else
                 echo -e "${Warning} sshpass 未安装，将使用交互式测试"
                 echo -e "${Tip} 请在提示时输入密码..."
-                ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -p "$port" "${user}@${host}" "echo '连接成功!' && exit"
+                ssh -o "$(_ssh_strict_opt)" -o ConnectTimeout=10 -p "$port" "${user}@${host}" "echo '连接成功!' && exit"
                 return $?
             fi
             ;;
         key)
-            local ssh_opts="-o StrictHostKeyChecking=no -o ConnectTimeout=10 -o BatchMode=yes"
+            local ssh_opts="-o $(_ssh_strict_opt) -o ConnectTimeout=10 -o BatchMode=yes"
             local result=$(ssh $ssh_opts -i "$auth_data" -p "$port" "${user}@${host}" "echo ok" 2>&1)
             if [ "$result" = "ok" ]; then
                 echo -e "${Info} ${Green}连接成功${Reset}"
@@ -309,25 +325,26 @@ create_local_forward() {
     local auth_method=$(echo "$info" | cut -d'|' -f5)
     local auth_data=$(echo "$info" | cut -d'|' -f6)
     
-    local ssh_opts="-o StrictHostKeyChecking=no -N -f"
-    local tunnel_cmd=""
+    local ssh_opts=(-o "$(_ssh_strict_opt)" -N -f)
+    local tunnel_cmd=()
     
     case "$auth_method" in
         password)
             if command -v sshpass &>/dev/null; then
-                tunnel_cmd="sshpass -p '$auth_data' ssh $ssh_opts -L ${local_port}:${remote_host}:${remote_port} -p $port ${user}@${host}"
+                tunnel_cmd=(sshpass -p "$auth_data" ssh "${ssh_opts[@]}" -L "${local_port}:${remote_host}:${remote_port}" -p "$port" "${user}@${host}")
             else
                 echo -e "${Error} 密码认证需要安装 sshpass"
                 return 1
             fi
             ;;
         key)
-            tunnel_cmd="ssh $ssh_opts -i '$auth_data' -L ${local_port}:${remote_host}:${remote_port} -p $port ${user}@${host}"
+            tunnel_cmd=(ssh "${ssh_opts[@]}" -i "$auth_data" -L "${local_port}:${remote_host}:${remote_port}" -p "$port" "${user}@${host}")
             ;;
     esac
     
     echo -e "${Info} 创建隧道..."
-    eval $tunnel_cmd
+    # 使用数组直接执行，避免 eval
+    "${tunnel_cmd[@]}"
     
     if [ $? -eq 0 ]; then
         echo -e "${Info} ${Green}本地端口转发已建立${Reset}"
@@ -369,25 +386,26 @@ create_remote_forward() {
     local auth_method=$(echo "$info" | cut -d'|' -f5)
     local auth_data=$(echo "$info" | cut -d'|' -f6)
     
-    local ssh_opts="-o StrictHostKeyChecking=no -o ServerAliveInterval=60 -N -f"
-    local tunnel_cmd=""
+    local ssh_opts=(-o "$(_ssh_strict_opt)" -o ServerAliveInterval=60 -N -f)
+    local tunnel_cmd=()
     
     case "$auth_method" in
         password)
             if command -v sshpass &>/dev/null; then
-                tunnel_cmd="sshpass -p '$auth_data' ssh $ssh_opts -R ${remote_listen_port}:${local_host}:${local_target_port} -p $port ${user}@${host}"
+                tunnel_cmd=(sshpass -p "$auth_data" ssh "${ssh_opts[@]}" -R "${remote_listen_port}:${local_host}:${local_target_port}" -p "$port" "${user}@${host}")
             else
                 echo -e "${Error} 密码认证需要安装 sshpass"
                 return 1
             fi
             ;;
         key)
-            tunnel_cmd="ssh $ssh_opts -i '$auth_data' -R ${remote_listen_port}:${local_host}:${local_target_port} -p $port ${user}@${host}"
+            tunnel_cmd=(ssh "${ssh_opts[@]}" -i "$auth_data" -R "${remote_listen_port}:${local_host}:${local_target_port}" -p "$port" "${user}@${host}")
             ;;
     esac
     
     echo -e "${Info} 创建反向隧道..."
-    eval $tunnel_cmd
+    # 使用数组直接执行，避免 eval
+    "${tunnel_cmd[@]}"
     
     if [ $? -eq 0 ]; then
         echo -e "${Info} ${Green}远程端口转发已建立${Reset}"
@@ -427,25 +445,26 @@ create_socks_proxy() {
     local auth_method=$(echo "$info" | cut -d'|' -f5)
     local auth_data=$(echo "$info" | cut -d'|' -f6)
     
-    local ssh_opts="-o StrictHostKeyChecking=no -o ServerAliveInterval=60 -N -f"
-    local tunnel_cmd=""
+    local ssh_opts=(-o "$(_ssh_strict_opt)" -o ServerAliveInterval=60 -N -f)
+    local tunnel_cmd=()
     
     case "$auth_method" in
         password)
             if command -v sshpass &>/dev/null; then
-                tunnel_cmd="sshpass -p '$auth_data' ssh $ssh_opts -D ${socks_port} -p $port ${user}@${host}"
+                tunnel_cmd=(sshpass -p "$auth_data" ssh "${ssh_opts[@]}" -D "${socks_port}" -p "$port" "${user}@${host}")
             else
                 echo -e "${Error} 密码认证需要安装 sshpass"
                 return 1
             fi
             ;;
         key)
-            tunnel_cmd="ssh $ssh_opts -i '$auth_data' -D ${socks_port} -p $port ${user}@${host}"
+            tunnel_cmd=(ssh "${ssh_opts[@]}" -i "$auth_data" -D "${socks_port}" -p "$port" "${user}@${host}")
             ;;
     esac
     
     echo -e "${Info} 创建 SOCKS5 代理..."
-    eval $tunnel_cmd
+    # 使用数组直接执行，避免 eval
+    "${tunnel_cmd[@]}"
     
     if [ $? -eq 0 ]; then
         echo -e "${Info} ${Green}SOCKS5 代理已建立${Reset}"
@@ -522,7 +541,7 @@ batch_execute() {
     while IFS='|' read -r name host port user auth_method auth_data desc; do
         echo -e "${Cyan}>>> ${name} (${host})${Reset}"
         
-        local ssh_opts="-o StrictHostKeyChecking=no -o ConnectTimeout=10"
+        local ssh_opts="-o $(_ssh_strict_opt) -o ConnectTimeout=10"
         local result=""
         
         case "$auth_method" in
@@ -569,7 +588,7 @@ batch_upload() {
     while IFS='|' read -r name host port user auth_method auth_data desc; do
         echo -e "${Cyan}>>> ${name} (${host})${Reset}"
         
-        local scp_opts="-o StrictHostKeyChecking=no -o ConnectTimeout=10"
+        local scp_opts="-o $(_ssh_strict_opt) -o ConnectTimeout=10"
         
         case "$auth_method" in
             password)
@@ -678,7 +697,7 @@ chain_connect() {
     done
     
     echo -e "${Info} 正在建立连接..."
-    ssh -o StrictHostKeyChecking=no -J "$proxy_jump" -p "$target_port" "${target_user}@${target_host}"
+    ssh -o "$(_ssh_strict_opt)" -J "$proxy_jump" -p "$target_port" "${target_user}@${target_host}"
 }
 
 # ==================== 主菜单 ====================

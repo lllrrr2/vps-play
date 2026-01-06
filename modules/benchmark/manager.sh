@@ -9,6 +9,7 @@ VPSPLAY_DIR="$(cd "$MODULE_DIR/../.." 2>/dev/null && pwd)"
 [ -z "$VPSPLAY_DIR" ] && VPSPLAY_DIR="$HOME/vps-play"
 
 [ -f "$VPSPLAY_DIR/utils/env_detect.sh" ] && source "$VPSPLAY_DIR/utils/env_detect.sh"
+[ -f "$VPSPLAY_DIR/utils/safe_ops.sh" ] && source "$VPSPLAY_DIR/utils/safe_ops.sh"
 
 # ==================== 颜色定义 ====================
 Green="\033[32m"
@@ -102,7 +103,15 @@ run_ecs_shell() {
         fi
     else
         echo -e "${Error} 下载失败，尝试备用源..."
-        bash <(wget -qO- bash.spiritlhl.net/ecs) $params
+        # 安全下载执行（不使用管道）
+        local tmp_script="$BENCH_DIR/ecs_backup.sh"
+        if wget -qO "$tmp_script" bash.spiritlhl.net/ecs; then
+            chmod +x "$tmp_script"
+            bash "$tmp_script" $params
+            rm -f "$tmp_script"
+        else
+            echo -e "${Error} 备用源也失败"
+        fi
     fi
 }
 
@@ -202,7 +211,16 @@ run_ecs_ipcheck() {
         echo -e ""
         run_simple_ipcheck
     else
-        bash <(wget -qO- bash.spiritlhl.net/ecs-ipcheck)
+        # 安全下载执行（不使用管道）
+        local tmp_script="$BENCH_DIR/ipcheck.sh"
+        if wget -qO "$tmp_script" bash.spiritlhl.net/ecs-ipcheck; then
+            chmod +x "$tmp_script"
+            bash "$tmp_script"
+            rm -f "$tmp_script"
+        else
+            echo -e "${Error} 下载失败，使用简化检测"
+            run_simple_ipcheck
+        fi
     fi
 }
 
@@ -390,17 +408,38 @@ EOF
 # ==================== 其他测评脚本 ====================
 run_bench_sh() {
     echo -e "${Info} 运行 bench.sh..."
-    curl -sL https://raw.githubusercontent.com/teddysun/across/master/bench.sh | bash
+    local tmp_script="$BENCH_DIR/bench.sh"
+    if curl -sL https://raw.githubusercontent.com/teddysun/across/master/bench.sh -o "$tmp_script"; then
+        chmod +x "$tmp_script"
+        bash "$tmp_script"
+        rm -f "$tmp_script"
+    else
+        echo -e "${Error} 下载失败"
+    fi
 }
 
 run_superbench() {
     echo -e "${Info} 运行 SuperBench..."
-    bash <(curl -sL https://raw.githubusercontent.com/oooldking/script/master/superbench.sh)
+    local tmp_script="$BENCH_DIR/superbench.sh"
+    if curl -sL https://raw.githubusercontent.com/oooldking/script/master/superbench.sh -o "$tmp_script"; then
+        chmod +x "$tmp_script"
+        bash "$tmp_script"
+        rm -f "$tmp_script"
+    else
+        echo -e "${Error} 下载失败"
+    fi
 }
 
 run_yabs() {
     echo -e "${Info} 运行 YABS..."
-    curl -sL https://yabs.sh | bash
+    local tmp_script="$BENCH_DIR/yabs.sh"
+    if curl -sL https://yabs.sh -o "$tmp_script"; then
+        chmod +x "$tmp_script"
+        bash "$tmp_script"
+        rm -f "$tmp_script"
+    else
+        echo -e "${Error} 下载失败"
+    fi
 }
 
 run_speedtest() {
@@ -425,7 +464,14 @@ run_speedtest() {
             speedtest
         else
             echo -e "${Warning} speedtest 未安装，使用备用方案"
-            bash <(curl -sL https://raw.githubusercontent.com/spiritLHLS/ecsspeed/main/script/ecsspeed.sh)
+            local tmp_script="$BENCH_DIR/ecsspeed.sh"
+            if curl -sL https://raw.githubusercontent.com/spiritLHLS/ecsspeed/main/script/ecsspeed.sh -o "$tmp_script"; then
+                chmod +x "$tmp_script"
+                bash "$tmp_script"
+                rm -f "$tmp_script"
+            else
+                echo -e "${Error} 下载失败"
+            fi
         fi
     fi
 }
@@ -462,9 +508,16 @@ run_traceroute() {
                 if command -v nexttrace &>/dev/null; then
                     echo -e "${Info} NextTrace 已安装"
                 else
-                    # 使用官方安装脚本
-                    curl -Ls https://nxtrace.org/nt | bash 2>/dev/null || \
-                    bash <(curl -Ls https://raw.githubusercontent.com/nxtrace/NTrace-core/main/nt_install.sh) 2>/dev/null
+                    # NextTrace 官方安装（安全方式）
+                    local tmp_script="$BENCH_DIR/nt_install.sh"
+                    if curl -Ls https://nxtrace.org/nt -o "$tmp_script" 2>/dev/null || \
+                       curl -Ls https://raw.githubusercontent.com/nxtrace/NTrace-core/main/nt_install.sh -o "$tmp_script" 2>/dev/null; then
+                        chmod +x "$tmp_script"
+                        bash "$tmp_script"
+                        rm -f "$tmp_script"
+                    else
+                        echo -e "${Error} NextTrace 安装脚本下载失败"
+                    fi
                 fi
                 
                 if command -v nexttrace &>/dev/null; then

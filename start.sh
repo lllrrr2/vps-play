@@ -144,6 +144,7 @@ EOF
     download_file "utils/process_manager.sh"
     download_file "utils/network.sh"
     download_file "utils/system_clean.sh"
+    download_file "utils/safe_ops.sh"
     
     echo -e "${_Green}[信息]${_Reset} 下载功能模块..."
     download_file "modules/singbox/manager.sh"
@@ -193,27 +194,68 @@ SHORTCUT_EOF
     echo -e ""
 }
 
-# 在线卸载函数
+# 在线卸载函数 (安全版 - 不使用 curl | bash)
 online_uninstall() {
     local _Green="\033[32m"
     local _Red="\033[31m"
     local _Yellow="\033[33m"
     local _Reset="\033[0m"
+    local _tmp_file
     
     echo -e "${_Yellow}[警告]${_Reset} 确定要卸载 VPS-play 吗? [y/N]"
-    read -p "" confirm
+    read -rp "" confirm
     if [[ ! $confirm =~ ^[Yy]$ ]]; then
         echo -e "${_Green}[信息]${_Reset} 已取消"
         exit 0
     fi
     
-    # 下载并执行卸载脚本
+    # 安全下载执行 - 先下载到临时文件，再执行
+    _tmp_file=$(mktemp "${TMPDIR:-/tmp}/vps-play-uninstall.XXXXXX")
+    
+    # 确保退出时清理临时文件
+    trap "rm -f '$_tmp_file'" EXIT
+    
+    echo -e "${_Green}[信息]${_Reset} 下载卸载脚本..."
+    
     if command -v curl &>/dev/null; then
-        curl -sL "${REPO_RAW}/uninstall.sh" | bash
+        if ! curl -fsSL --connect-timeout 10 "${REPO_RAW}/uninstall.sh" -o "$_tmp_file"; then
+            echo -e "${_Red}[错误]${_Reset} 下载卸载脚本失败"
+            rm -f "$_tmp_file"
+            exit 1
+        fi
     elif command -v wget &>/dev/null; then
-        wget -qO- "${REPO_RAW}/uninstall.sh" | bash
+        if ! wget -q --timeout=30 "${REPO_RAW}/uninstall.sh" -O "$_tmp_file"; then
+            echo -e "${_Red}[错误]${_Reset} 下载卸载脚本失败"
+            rm -f "$_tmp_file"
+            exit 1
+        fi
+    else
+        echo -e "${_Red}[错误]${_Reset} 需要 curl 或 wget"
+        exit 1
     fi
-    exit 0
+    
+    # 检查下载的文件是否为空
+    if [[ ! -s "$_tmp_file" ]]; then
+        echo -e "${_Red}[错误]${_Reset} 下载的脚本为空"
+        rm -f "$_tmp_file"
+        exit 1
+    fi
+    
+    # 检查是否包含危险命令
+    if grep -q 'rm -rf /[^a-z]' "$_tmp_file" 2>/dev/null; then
+        echo -e "${_Red}[错误]${_Reset} 检测到危险命令，拒绝执行"
+        rm -f "$_tmp_file"
+        exit 1
+    fi
+    
+    echo -e "${_Green}[信息]${_Reset} 执行卸载脚本..."
+    bash "$_tmp_file"
+    local ret=$?
+    
+    rm -f "$_tmp_file"
+    trap - EXIT
+    
+    exit $ret
 }
 
 # ==================== 根据参数执行 ====================
@@ -286,6 +328,7 @@ cd "$SCRIPT_DIR" 2>/dev/null
 WORK_DIR="$HOME/.vps-play"
 
 # 加载工具库（静默失败）
+[ -f "$SCRIPT_DIR/utils/safe_ops.sh" ] && source "$SCRIPT_DIR/utils/safe_ops.sh"
 [ -f "$SCRIPT_DIR/utils/env_detect.sh" ] && source "$SCRIPT_DIR/utils/env_detect.sh"
 [ -f "$SCRIPT_DIR/utils/port_manager.sh" ] && source "$SCRIPT_DIR/utils/port_manager.sh"
 [ -f "$SCRIPT_DIR/utils/process_manager.sh" ] && source "$SCRIPT_DIR/utils/process_manager.sh"
@@ -724,16 +767,20 @@ main_loop() {
                         echo -e "${Warning} 即将停止所有 VPS-play 相关进程"
                         read -p "确定? [y/N]: " confirm
                         if [[ $confirm =~ ^[Yy]$ ]]; then
-                            pkill -f "sing-box" 2>/dev/null
-                            pkill -f "gost" 2>/dev/null
-                            pkill -f "cloudflared" 2>/dev/null
-                            pkill -f "xray" 2>/dev/null
-                            pkill -f "nezha-agent" 2>/dev/null
-                            pkill -f "frpc" 2>/dev/null
-                            pkill -f "frps" 2>/dev/null
-                            pkill -f "hysteria" 2>/dev/null
-                            pkill -f "tuic" 2>/dev/null
-                            echo -e "${Info} 已停止所有进程"
+                            # 优先使用 PID 文件停止（如果 safe_kill 可用）
+                            if type safe_kill &>/dev/null; then
+                                for svc in sing-box gost cloudflared xray nezha-agent frpc frps hysteria tuic; do
+                                    safe_kill "$svc" 2>/dev/null || true
+                                done
+                            fi
+                            
+                            # 限定路径的 pkill - 只杀死 vps-play 目录下的进程（防止误杀）
+                            for proc in sing-box gost cloudflared xray nezha-agent frpc frps hysteria tuic; do
+                                pkill -f "$HOME/.vps-play.*$proc" 2>/dev/null || true
+                                pkill -f "$HOME/vps-play.*$proc" 2>/dev/null || true
+                            done
+                            
+                            echo -e "${Info} 已停止所有 VPS-play 相关进程"
                         fi
                         ;;
                     3)
@@ -877,14 +924,37 @@ SWAP_EOF
                                         
                                         chmod 600 /swapfile
                                         mkswap /swapfile >/dev/null 2>&1
-                                        swapon /swapfile 2>/dev/null
+                                        local swapon_result=$(swapon /swapfile 2>&1)
+                                        local swapon_exit=$?
                                         
-                                        # 添加到 fstab
-                                        if ! grep -q "/swapfile" /etc/fstab 2>/dev/null; then
-                                            echo "/swapfile none swap sw 0 0" >> /etc/fstab
+                                        # 二次验证 - 确保 Swap 真正生效
+                                        sleep 1
+                                        local swap_after=$(free -m 2>/dev/null | awk '/^Swap:/{print $2}')
+                                        
+                                        if [ -n "$swap_after" ] && [ "${swap_after:-0}" -gt 0 ]; then
+                                            # 添加到 fstab
+                                            if ! grep -q "/swapfile" /etc/fstab 2>/dev/null; then
+                                                echo "/swapfile none swap sw 0 0" >> /etc/fstab
+                                            fi
+                                            echo -e "${Info} Swap 创建成功! (已验证: ${swap_after}MB)"
+                                            free -h 2>/dev/null | head -3
+                                        else
+                                            echo -e "${Error} Swap 创建失败 - 未能生效"
+                                            if [ -n "$swapon_result" ]; then
+                                                echo -e "${Warning} swapon 输出: $swapon_result"
+                                            fi
+                                            echo -e ""
+                                            echo -e "${Tip} 可能的原因:"
+                                            if [ "$is_container" = true ]; then
+                                                echo -e "  ${Red}容器环境 (${container_type}) 通常不支持 Swap${Reset}"
+                                            fi
+                                            echo -e "  1. 内核限制 (cgroup memory controller)"
+                                            echo -e "  2. 磁盘空间不足"
+                                            echo -e ""
+                                            # 回滚
+                                            swapoff /swapfile 2>/dev/null
+                                            rm -f /swapfile 2>/dev/null
                                         fi
-                                        
-                                        echo -e "${Info} Swap 创建成功!"
                                     else
                                         echo -e "${Error} 无效的大小"
                                     fi
@@ -1105,9 +1175,21 @@ SWAP_EOF
                 if [ -n "$uninstall_script" ]; then
                     bash "$uninstall_script"
                 else
-                    # 从网络下载卸载脚本
+                    # 从网络安全下载卸载脚本（不使用管道执行）
                     echo -e "${Info} 下载卸载脚本..."
-                    curl -sL https://raw.githubusercontent.com/hxzlplp7/vps-play/main/uninstall.sh | bash
+                    local _tmp_uninstall
+                    _tmp_uninstall=$(mktemp "${TMPDIR:-/tmp}/vps-play-uninstall.XXXXXX")
+                    
+                    if curl -fsSL --connect-timeout 10 "https://raw.githubusercontent.com/hxzlplp7/vps-play/main/uninstall.sh" -o "$_tmp_uninstall"; then
+                        if [[ -s "$_tmp_uninstall" ]]; then
+                            bash "$_tmp_uninstall"
+                        else
+                            echo -e "${Error} 下载的脚本为空"
+                        fi
+                        rm -f "$_tmp_uninstall"
+                    else
+                        echo -e "${Error} 下载卸载脚本失败"
+                    fi
                 fi
                 ;;
             0)

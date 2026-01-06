@@ -76,6 +76,19 @@ bash <(curl -Ls https://raw.githubusercontent.com/hxzlplp7/vps-play/main/start.s
 bash <(wget -qO- https://raw.githubusercontent.com/hxzlplp7/vps-play/main/start.sh)
 ```
 
+### 安全安装方式 (推荐安全敏感用户)
+
+```bash
+# 下载到本地后检查再执行
+curl -fsSL https://raw.githubusercontent.com/hxzlplp7/vps-play/main/start.sh -o start.sh
+# 检查脚本内容
+less start.sh
+# 确认安全后执行
+bash start.sh
+```
+
+> ⚠️ **安全提示**：直接管道执行 (`curl | bash`) 存在供应链风险，建议先下载检查后再执行。
+
 ### 其他选项
 
 ```bash
@@ -93,6 +106,7 @@ bash <(curl -Ls https://raw.githubusercontent.com/hxzlplp7/vps-play/main/start.s
 # 查看帮助
 bash <(curl -Ls https://raw.githubusercontent.com/hxzlplp7/vps-play/main/start.sh) --help
 ```
+
 
 ## 📖 功能模块
 

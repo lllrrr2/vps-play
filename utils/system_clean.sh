@@ -3,10 +3,11 @@
 # 功能: 清理缓存/日志、系统重置、恢复初始状态
 # 支持: 普通VPS、FreeBSD、Serv00/Hostuno
 
-# 加载环境检测
+# 加载环境检测和安全函数
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
 VPSPLAY_DIR="$(cd "$SCRIPT_DIR/.." 2>/dev/null && pwd)"
 [ -f "$VPSPLAY_DIR/utils/env_detect.sh" ] && source "$VPSPLAY_DIR/utils/env_detect.sh"
+[ -f "$VPSPLAY_DIR/utils/safe_ops.sh" ] && source "$VPSPLAY_DIR/utils/safe_ops.sh"
 
 # 颜色定义
 Green="\033[32m"
@@ -223,17 +224,26 @@ reset_vpsplay() {
     echo -e ""
     echo -e "${Info} 停止所有运行中的服务..."
     
-    # 停止所有可能的服务
-    pkill -f "sing-box" 2>/dev/null
-    pkill -f "xray" 2>/dev/null
-    pkill -f "gost" 2>/dev/null
-    pkill -f "cloudflared" 2>/dev/null
-    pkill -f "nezha-agent" 2>/dev/null
-    pkill -f "frpc" 2>/dev/null
-    pkill -f "frps" 2>/dev/null
+    # 优先使用安全式停止（如果 safe_kill 可用）
+    if type safe_kill &>/dev/null; then
+        for svc in sing-box xray gost cloudflared nezha-agent frpc frps; do
+            safe_kill "$svc" 2>/dev/null || true
+        done
+    fi
+    
+    # 限定路径的 pkill 回退
+    for proc in sing-box xray gost cloudflared nezha-agent frpc frps; do
+        pkill -f "$HOME/.vps-play.*$proc" 2>/dev/null || true
+        pkill -f "$HOME/vps-play.*$proc" 2>/dev/null || true
+    done
     
     echo -e "${Info} 删除 VPS-play 数据目录..."
-    rm -rf "$VPSPLAY_DATA"
+    # 使用 safe_rm 如果可用
+    if type safe_rm &>/dev/null; then
+        safe_rm "$VPSPLAY_DATA"
+    else
+        rm -rf "$VPSPLAY_DATA"
+    fi
     
     # 重新创建空目录
     mkdir -p "$VPSPLAY_DATA"
@@ -287,9 +297,13 @@ reset_module() {
         pkill -f "$process_name" 2>/dev/null
     fi
     
-    # 删除数据目录
+    # 删除数据目录（使用 safe_rm 如果可用）
     echo -e "${Info} 删除数据..."
-    rm -rf "$VPSPLAY_DATA/$module_dir"
+    if type safe_rm &>/dev/null; then
+        safe_rm "$VPSPLAY_DATA/$module_dir"
+    else
+        rm -rf "$VPSPLAY_DATA/$module_dir"
+    fi
     
     echo -e "${Green}✓ ${module_name} 已重置${Reset}"
 }
@@ -461,7 +475,18 @@ reset_serv00_system() {
     )
     
     for dir in "${dirs_to_clean[@]}"; do
-        rm -rf $dir 2>/dev/null
+        # 处理通配符和普通路径
+        if [[ "$dir" == *"*"* ]]; then
+            # 包含通配符，需要展开
+            shopt -s nullglob
+            for p in $dir; do
+                rm -rf -- "$p" 2>/dev/null
+            done
+            shopt -u nullglob
+        else
+            # 普通路径，引用变量防止分词
+            rm -rf -- "$dir" 2>/dev/null
+        fi
     done
     
     # 删除二进制文件

@@ -305,22 +305,36 @@ check_port_available() {
     return 0
 }
 
-# ==================== 获取随机可用端口 ====================
+# ==================== 获取随机可用端口（带锁防竞态） ====================
 get_random_port() {
     local min=${1:-10000}
     local max=${2:-65535}
     local port
+    local lock_file="${HOME}/.vps-play/locks/port.lock"
     
-    for i in {1..20}; do
-        port=$((RANDOM % (max - min + 1) + min))
-        if check_port_available "$port"; then
-            echo "$port"
-            return 0
+    # 确保锁目录存在
+    mkdir -p "$(dirname "$lock_file")" 2>/dev/null || true
+    
+    # 使用 flock 获取排他锁
+    (
+        # 尝试获取锁，超时 5 秒
+        if command -v flock &>/dev/null; then
+            flock -x -w 5 200 || {
+                echo -e "${Warning} 无法获取端口锁，使用无锁模式" >&2
+            }
         fi
-    done
-    
-    echo -e "${Error} 无法找到可用端口" >&2
-    return 1
+        
+        for i in {1..50}; do
+            port=$((RANDOM % (max - min + 1) + min))
+            if check_port_available "$port"; then
+                echo "$port"
+                exit 0
+            fi
+        done
+        
+        echo -e "${Error} 无法找到可用端口" >&2
+        exit 1
+    ) 200>"$lock_file"
 }
 
 # 如果直接运行此脚本

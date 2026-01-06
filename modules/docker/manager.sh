@@ -197,7 +197,16 @@ install_docker_alpine() {
 install_docker_script() {
     echo -e "${Info} 使用官方脚本安装 Docker..."
     
-    curl -fsSL https://get.docker.com | sh
+    # 安全下载并安装（不使用管道）
+    local _docker_tmp="/tmp/get-docker.sh"
+    if curl -fsSL --connect-timeout 10 https://get.docker.com -o "$_docker_tmp"; then
+        chmod +x "$_docker_tmp"
+        sh "$_docker_tmp"
+        rm -f "$_docker_tmp"
+    else
+        echo -e "${Error} Docker 安装脚本下载失败"
+        return 1
+    fi
     
     if command -v systemctl &>/dev/null; then
         systemctl enable docker

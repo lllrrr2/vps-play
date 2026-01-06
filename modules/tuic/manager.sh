@@ -113,7 +113,16 @@ tuic_cert() {
                 ${PACKAGE_INSTALL[int]} cron && systemctl start cron && systemctl enable cron
             fi
             
-            curl https://get.acme.sh | sh -s email=$(date +%s%N | md5sum | cut -c 1-16)@gmail.com
+            # 安全下载并安装 acme.sh（不使用管道）
+            local _acme_tmp="/tmp/acme.sh-install.sh"
+            if curl -fsSL --connect-timeout 10 https://get.acme.sh -o "$_acme_tmp"; then
+                chmod +x "$_acme_tmp"
+                sh "$_acme_tmp" email="$(date +%s%N | md5sum | cut -c 1-16)@gmail.com"
+                rm -f "$_acme_tmp"
+            else
+                echo -e "${Error} acme.sh 下载失败"
+                return 1
+            fi
             source ~/.bashrc
             bash ~/.acme.sh/acme.sh --upgrade --auto-upgrade
             bash ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
